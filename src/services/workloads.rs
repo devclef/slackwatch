@@ -69,18 +69,18 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
 }
 
 pub async fn find_latest_tag_for_image(workload: &Workload) -> Option<String> {
-    match get_tags_for_image(&workload.image).await {
-        Ok(tags) => {
-            let latest_tag = tags.first()?.clone();
-            log::info!("Latest tag for image {}: {}", workload.image, latest_tag);
-            Some(latest_tag)
-        },
-        Err(e) => {
-            log::error!("Error fetching tags for image {}: {}", workload.image, e);
-            None
-        },
-    }
-}
+     match get_tags_for_image(&workload.image).await {
+         Ok((tags, _)) => {
+             let latest_tag = tags.first()?.clone();
+             log::info!("Latest tag for image {}: {}", workload.image, latest_tag);
+             Some(latest_tag)
+         },
+         Err(e) => {
+             log::error!("Error fetching tags for image {}: {}", workload.image, e);
+             None
+         },
+     }
+ }
 
 
 pub async fn test_call() {
@@ -97,8 +97,8 @@ fn strip_tag_lettings(tag: &str) -> String {
 }
 
 pub async fn parse_tags(workload: &Workload) -> Result<Workload, Box<dyn std::error::Error>> {
-    let mut tags = get_tags_for_image(&workload.image).await?;
-    tags.sort();
+     let (mut tags, exhausted) = get_tags_for_image(&workload.image).await?;
+     tags.sort();
 
     // Include Pattern Handling
     if let Some(include_pattern_str) = &workload.include_pattern {
@@ -153,7 +153,7 @@ pub async fn parse_tags(workload: &Workload) -> Result<Workload, Box<dyn std::er
                     log::info!("Tag {} is newer than {} current latest_version updating", tag, latest_version);
                     latest_version = tag.clone();
                 }
-                
+
             }
         } else {
             // Handle the case where the tag is not a valid SemVer format
@@ -168,17 +168,18 @@ pub async fn parse_tags(workload: &Workload) -> Result<Workload, Box<dyn std::er
         log::info!("Latest version for {}: {}", workload.image, latest_version);
         update_available = UpdateStatus::Available;
     }
-    Ok(Workload {
-        name: workload.name.clone(),
-        exclude_pattern: workload.exclude_pattern.clone(),
-        git_ops_repo: workload.git_ops_repo.clone(),
-        include_pattern: workload.include_pattern.clone(),
-        namespace: workload.namespace.clone(),
-        current_version: workload.current_version.clone(),
-        image: workload.image.clone(),
-        update_available,
-        last_scanned: workload.last_scanned.clone(),
-        latest_version: latest_version.clone(),
-        git_directory: workload.git_directory.clone(),
-    })
-}
+Ok(Workload {
+         name: workload.name.clone(),
+         exclude_pattern: workload.exclude_pattern.clone(),
+         git_ops_repo: workload.git_ops_repo.clone(),
+         include_pattern: workload.include_pattern.clone(),
+         namespace: workload.namespace.clone(),
+         current_version: workload.current_version.clone(),
+         image: workload.image.clone(),
+         update_available,
+         last_scanned: workload.last_scanned.clone(),
+         latest_version: latest_version.clone(),
+         git_directory: workload.git_directory.clone(),
+         scan_exhausted: exhausted.to_string(),
+     })
+ }

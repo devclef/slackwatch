@@ -7,21 +7,22 @@ pub fn create_table_if_not_exist() -> Result<()> {
     let conn = Connection::open("data.db")?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS workloads (
-                  id              INTEGER PRIMARY KEY,
-                  name            TEXT NOT NULL,
-                  image           TEXT NOT NULL,
-                  namespace       TEXT NOT NULL,
-                  git_ops_repo    TEXT,
-                  include_pattern TEXT,
-                  exclude_pattern TEXT,
-                  update_available TEXT,
-                  current_version TEXT NOT NULL,
-                  latest_version  TEXT NOT NULL,
-                  last_scanned    TEXT NOT NULL,
-                  scan_id        INTEGER,
-                  scan_type     TEXT,
-                  git_directory   TEXT
-                  )",
+                   id              INTEGER PRIMARY KEY,
+                   name            TEXT NOT NULL,
+                   image           TEXT NOT NULL,
+                   namespace       TEXT NOT NULL,
+                   git_ops_repo    TEXT,
+                   include_pattern TEXT,
+                   exclude_pattern TEXT,
+                   update_available TEXT,
+                   current_version TEXT NOT NULL,
+                   latest_version  TEXT NOT NULL,
+                   last_scanned    TEXT NOT NULL,
+                   scan_id        INTEGER,
+                   scan_type     TEXT,
+                   git_directory   TEXT,
+                   scan_exhausted TEXT
+                   )",
         [],
     )?;
     Ok(())
@@ -43,6 +44,7 @@ pub fn return_workload(name: String, namespace: String) -> Result<Workload> {
             latest_version: row.get(9)?,
             last_scanned: row.get(10)?,
             git_directory: row.get(13)?,
+            scan_exhausted: row.get(14)?,
         })
     })?;
     if let Some(workload) = workload.next() {
@@ -95,6 +97,7 @@ JOIN MaxLastScanned mls ON f.name = mls.name AND f.namespace = mls.namespace AND
             latest_version: row.get(9)?,
             last_scanned: row.get(10)?,
             git_directory: row.get(13)?,
+            scan_exhausted: row.get(14)?,
         })
     })?;
     let mut result = Vec::new();
@@ -134,25 +137,26 @@ pub fn insert_workload(workload: &Workload, scan_id: i32) -> Result<()> {
     let conn = Connection::open("data.db")?;
     //get scan_id
     match conn.execute(
-        "INSERT INTO workloads (name, image, namespace, git_ops_repo, include_pattern, exclude_pattern, update_available, current_version, latest_version, last_scanned, scan_id, scan_type, git_directory)
-                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        [
-            &workload.name,
-            &workload.image,
-            &workload.namespace,
-            workload.git_ops_repo.as_ref().map(String::as_str).unwrap_or_default(), // Handle potential None
-            workload.include_pattern.as_ref().map(String::as_str).unwrap_or_default(),
-            workload.exclude_pattern.as_ref().map(String::as_str).unwrap_or_default(),
-            &workload.update_available.to_string(), // Consider an enum for clarity
-            &workload.current_version,
-            &workload.latest_version,
-            &workload.last_scanned,
-            &scan_id.to_string(),
-            &workload.name,
-            &workload.git_directory.as_ref().map(String::as_str).unwrap_or_default(),
-        ],
-    ) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e),
-    }
+         "INSERT INTO workloads (name, image, namespace, git_ops_repo, include_pattern, exclude_pattern, update_available, current_version, latest_version, last_scanned, scan_id, scan_type, git_directory, scan_exhausted)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         [
+             &workload.name,
+             &workload.image,
+             &workload.namespace,
+             workload.git_ops_repo.as_ref().map(String::as_str).unwrap_or_default(), // Handle potential None
+             workload.include_pattern.as_ref().map(String::as_str).unwrap_or_default(),
+             workload.exclude_pattern.as_ref().map(String::as_str).unwrap_or_default(),
+             &workload.update_available.to_string(), // Consider an enum for clarity
+             &workload.current_version,
+             &workload.latest_version,
+             &workload.last_scanned,
+             &scan_id.to_string(),
+             &workload.name,
+             &workload.git_directory.as_ref().map(String::as_str).unwrap_or_default(),
+             &workload.scan_exhausted.to_string(),
+         ],
+     ) {
+         Ok(_) => Ok(()),
+         Err(e) => Err(e),
+     }
 }

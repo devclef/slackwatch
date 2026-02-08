@@ -15,9 +15,12 @@ pub struct Workload {
     pub namespace: String,
     pub current_version: String,
     pub latest_version: String,
+    pub scan_exhausted: String,
 }
 
-#[derive(strum_macros::Display, strum_macros::EnumString, Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(
+    strum_macros::Display, strum_macros::EnumString, Debug, Serialize, Deserialize, Clone, PartialEq,
+)]
 pub enum UpdateStatus {
     Available,
     NotAvailable,

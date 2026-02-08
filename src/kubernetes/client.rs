@@ -40,20 +40,21 @@ async fn create_workload_from_pod(pod: Pod) -> Option<Workload> {
     let image_parts: Vec<&str> = image.split(':').collect();
     let current_version = image_parts.get(1).unwrap_or(&"latest").to_string();
 
-    Some(Workload {
-        name: name.clone(),
-        namespace: namespace.clone(),
-        image: image,
-        current_version: current_version, // Simplified for demonstration
-        latest_version: "1.0.0".to_string(), // Simplified for demonstration
-        exclude_pattern: annotations.get("slackwatch.exclude").cloned(),
-        include_pattern: annotations.get("slackwatch.include").cloned(),
-        git_ops_repo: annotations.get("slackwatch.repo").cloned(),
-        git_directory: annotations.get("slackwatch.directory").cloned(),
-        update_available: UpdateStatus::NotAvailable, // Default value, adjust as needed
-        last_scanned: chrono::Utc::now().to_rfc3339(),
-    })
-}
+Some(Workload {
+         name: name.clone(),
+         namespace: namespace.clone(),
+         image: image,
+         current_version: current_version, // Simplified for demonstration
+         latest_version: "1.0.0".to_string(), // Simplified for demonstration
+         exclude_pattern: annotations.get("slackwatch.exclude").cloned(),
+         include_pattern: annotations.get("slackwatch.include").cloned(),
+         git_ops_repo: annotations.get("slackwatch.repo").cloned(),
+         git_directory: annotations.get("slackwatch.directory").cloned(),
+         update_available: UpdateStatus::NotAvailable, // Default value, adjust as needed
+         last_scanned: chrono::Utc::now().to_rfc3339(),
+         scan_exhausted: "False".to_string(),
+     })
+ }
 
 pub async fn find_specific_workload(
     request_name: &str,
