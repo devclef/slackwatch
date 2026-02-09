@@ -57,7 +57,6 @@ pub async fn get_tags_for_image(image: &str) -> Result<(Vec<String>, bool), Box<
          // If we got exactly 1000 tags, it might indicate we hit a limit
          // Take the latest tag and rerun the query
          if tags.tags.len() >= 1000 {
-             exhausted = true;
              // Find the latest tag (alphabetically last)
              if let Some(latest) = tags.tags.iter().max() {
                  last_tag = Some(latest.clone());

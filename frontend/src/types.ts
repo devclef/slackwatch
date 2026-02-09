@@ -1,11 +1,12 @@
 export interface Workload {
-  name: string;
-  namespace: string;
-  image: string;
-  current_version: string;
-  latest_version: string;
-  last_scanned: string;
-  update_available: 'Available' | 'NotAvailable' | 'Unknown';
+   name: string;
+   namespace: string;
+   image: string;
+   current_version: string;
+   latest_version: string;
+   last_scanned: string;
+   update_available: 'Available' | 'NotAvailable' | 'Unknown';
+   scan_exhausted: string;
 }
 
 export interface Settings {

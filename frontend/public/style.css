@@ -16,14 +16,24 @@
 }
 
 .workload-card {
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    padding: 20px;
-    border-radius: 8px;
-    background: white;
-    order: 2;
-    margin: 20px;
-    position: relative;
+     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+     padding: 20px;
+     border-radius: 8px;
+     background: white;
+     order: 2;
+     margin: 20px;
+     position: relative;
 }
+
+.workload-card-scan-exhausted {
+      box-shadow: 0 0 15px rgba(255, 0, 0, 0.6);
+      background: #ffcccc;
+      border: 3px solid red !important;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px;
+      position: relative;
+ }
 
 .workload-update-single {
     display: flex;

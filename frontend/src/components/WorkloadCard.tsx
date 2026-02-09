@@ -34,8 +34,8 @@ export const WorkloadCard: React.FC<WorkloadCardProps> = ({ workload, onUpdate }
     }
   };
 
-  return (
-    <div className={workload.update_available === 'Available' ? 'workload-card-update-available' : 'workload-card'}>
+return (
+     <div className={`${workload.update_available === 'Available' ? 'workload-card-update-available' : 'workload-card'} ${workload.scan_exhausted === 'true' ? 'workload-card-scan-exhausted' : ''}`}>
       <div className="workload-name">{workload.name}</div>
       <button
         onClick={handleRefresh}
@@ -48,6 +48,9 @@ export const WorkloadCard: React.FC<WorkloadCardProps> = ({ workload, onUpdate }
       <div className="workload-version">Current Tag {workload.current_version}</div>
       <div className="workload-image">Image: {workload.image}</div>
       <div className="workload-last-scanned">Last Scanned: {workload.last_scanned}</div>
+       {workload.scan_exhausted === 'true' && (
+         <div className="scan-exhausted">Scan Exhausted</div>
+       )}
 
       {workload.update_available === 'Available' && (
         <>
