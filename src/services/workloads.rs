@@ -17,7 +17,28 @@ pub async fn update_single_workload(current_workload: Workload) -> Result<(), St
     log::info!("Found workload: {:?}", workload);
     let scan_id = get_latest_scan_id().unwrap_or(0) + 1;
     if let Some(latest_tag) = find_latest_tag_for_image(&workload).await {
-        let workload = parse_tags(&workload).await.map_err(|e| e.to_string())?;
+        let result = parse_tags(&workload).await;
+        let workload = match result {
+            Ok(w) => w,
+            Err(e) => {
+                log::error!("Regex error for workload {}: {}", workload.name, e);
+                Workload {
+                    name: workload.name.clone(),
+                    exclude_pattern: workload.exclude_pattern.clone(),
+                    git_ops_repo: workload.git_ops_repo.clone(),
+                    include_pattern: workload.include_pattern.clone(),
+                    namespace: workload.namespace.clone(),
+                    current_version: workload.current_version.clone(),
+                    image: workload.image.clone(),
+                    update_available: UpdateStatus::NotAvailable,
+                    last_scanned: workload.last_scanned.clone(),
+                    latest_version: String::new(),
+                    git_directory: workload.git_directory.clone(),
+                    scan_exhausted: "False".to_string(),
+                    regex_error: Some(e.to_string()),
+                }
+            }
+        };
 
         if workload.update_available.to_string() == "Available" {
             send_notification(&workload)
@@ -46,7 +67,28 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
     let scan_id = get_latest_scan_id().unwrap_or(0) + 1;
     for workload in workloads {
         if let Some(_) = find_latest_tag_for_image(&workload).await {
-            let workload = parse_tags(&workload).await.map_err(|e| e.to_string())?;
+            let result = parse_tags(&workload).await;
+            let workload = match result {
+                Ok(w) => w,
+                Err(e) => {
+                    log::error!("Regex error for workload {}: {}", workload.name, e);
+                    Workload {
+                        name: workload.name.clone(),
+                        exclude_pattern: workload.exclude_pattern.clone(),
+                        git_ops_repo: workload.git_ops_repo.clone(),
+                        include_pattern: workload.include_pattern.clone(),
+                        namespace: workload.namespace.clone(),
+                        current_version: workload.current_version.clone(),
+                        image: workload.image.clone(),
+                        update_available: UpdateStatus::NotAvailable,
+                        last_scanned: workload.last_scanned.clone(),
+                        latest_version: String::new(),
+                        git_directory: workload.git_directory.clone(),
+                        scan_exhausted: "False".to_string(),
+                        regex_error: Some(e.to_string()),
+                    }
+                }
+            };
             if workload.update_available.to_string() == "Available" {
                 send_notification(&workload)
                     .await
@@ -96,20 +138,28 @@ fn strip_tag_lettings(tag: &str) -> String {
     tag.chars().skip_while(|c| !c.is_digit(10)).collect()
 }
 
-pub async fn parse_tags(workload: &Workload) -> Result<Workload, Box<dyn std::error::Error>> {
-     let (mut tags, exhausted) = get_tags_for_image(&workload.image).await?;
+pub async fn parse_tags(workload: &Workload) -> Result<Workload, String> {
+     let (mut tags, exhausted) = get_tags_for_image(&workload.image).await.map_err(|e| e.to_string())?;
      tags.sort();
 
-    // Include Pattern Handling
-    if let Some(include_pattern_str) = &workload.include_pattern {
-        log::info!("Include pattern defined, using only include");
-        log::info!("Include pattern: {}", include_pattern_str);
+    // Validate and compile include patterns, capturing errors
+    let include_patterns: Result<Vec<Regex>, String> = workload
+        .include_pattern
+        .as_ref()
+        .map(|pattern_str| {
+            pattern_str
+                .split(",")
+                .map(|pattern| {
+                    Regex::new(pattern).map_err(|e| format!("Invalid include pattern '{}': {}", pattern, e))
+                })
+                .collect()
+        })
+        .unwrap_or(Ok(Vec::new()));
 
-        // Build regex from patterns, assuming comma-separated
-        let include_patterns = include_pattern_str
-            .split(",")
-            .map(|pattern| Regex::new(pattern).unwrap()) // Compile each regex
-            .collect::<Vec<Regex>>();
+    let include_patterns = include_patterns?;
+    if !include_patterns.is_empty() {
+        log::info!("Include pattern defined, using only include");
+        log::info!("Include pattern: {:?}", workload.include_pattern);
 
         tags = tags
             .into_iter()
@@ -118,15 +168,25 @@ pub async fn parse_tags(workload: &Workload) -> Result<Workload, Box<dyn std::er
 
         log::info!("Filtered tags: {:?}", tags);
     }
-    if let Some(exclude_pattern_str) = &workload.exclude_pattern {
-        log::info!("Exclude pattern defined, using only exclude");
-        log::info!("Exclude pattern: {}", exclude_pattern_str);
 
-        // Build regex from patterns, assuming comma-separated
-        let exclude_patterns = exclude_pattern_str
-            .split(",")
-            .map(|pattern| Regex::new(pattern).unwrap()) // Compile each regex
-            .collect::<Vec<Regex>>();
+    // Validate and compile exclude patterns, capturing errors
+    let exclude_patterns: Result<Vec<Regex>, String> = workload
+        .exclude_pattern
+        .as_ref()
+        .map(|pattern_str| {
+            pattern_str
+                .split(",")
+                .map(|pattern| {
+                    Regex::new(pattern).map_err(|e| format!("Invalid exclude pattern '{}': {}", pattern, e))
+                })
+                .collect()
+        })
+        .unwrap_or(Ok(Vec::new()));
+
+    let exclude_patterns = exclude_patterns?;
+    if !exclude_patterns.is_empty() {
+        log::info!("Exclude pattern defined, using only exclude");
+        log::info!("Exclude pattern: {:?}", workload.exclude_pattern);
 
         tags = tags
             .into_iter()
@@ -181,5 +241,6 @@ Ok(Workload {
          latest_version: latest_version.clone(),
          git_directory: workload.git_directory.clone(),
          scan_exhausted: exhausted.to_string(),
+         regex_error: None,
      })
  }

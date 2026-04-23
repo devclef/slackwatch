@@ -52,6 +52,12 @@ return (
          <div className="scan-exhausted">Scan Exhausted</div>
        )}
 
+       {workload.regex_error && (
+         <div className="regex-error">
+           <strong>Regex Error:</strong> {workload.regex_error}
+         </div>
+       )}
+
       {workload.update_available === 'Available' && (
         <>
           <div className="workload-latest-version">Latest Version Available: {workload.latest_version}</div>

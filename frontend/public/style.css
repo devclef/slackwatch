@@ -35,6 +35,22 @@
       position: relative;
  }
 
+.scan-exhausted {
+    color: red;
+    font-weight: bold;
+    margin-top: 10px;
+}
+
+.regex-error {
+    color: #cc6600;
+    background-color: #fff3e0;
+    border: 1px solid #ff9800;
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin-top: 10px;
+    font-size: 0.9em;
+}
+
 .workload-update-single {
     display: flex;
     border: none;
