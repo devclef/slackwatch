@@ -2,7 +2,7 @@ use crate::database;
 use crate::database::client::get_latest_scan_id;
 use crate::kubernetes::client::{find_enabled_workloads, find_specific_workload};
 use crate::models::models::{UpdateStatus, Workload};
-use crate::notifications::ntfy::send_notification;
+use crate::notifications::ntfy::{send_notification, send_batch_notification};
 use crate::repocheck::repocheck::get_tags_for_image;
 use regex::Regex;
 use semver::Version;
@@ -62,9 +62,10 @@ pub async fn update_single_workload(current_workload: Workload) -> Result<(), St
 pub async fn fetch_and_update_all_watched() -> Result<(), String> {
     let workloads = find_enabled_workloads().await.map_err(|e| e.to_string())?;
     log::info!("Found {} workloads", workloads.len());
-    //Update Database
-    //stop after 3
+
     let scan_id = get_latest_scan_id().unwrap_or(0) + 1;
+    let mut updates_available = Vec::new();
+
     for workload in workloads {
         if let Some(_) = find_latest_tag_for_image(&workload).await {
             let result = parse_tags(&workload).await;
@@ -89,11 +90,11 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
                     }
                 }
             };
+
             if workload.update_available.to_string() == "Available" {
-                send_notification(&workload)
-                    .await
-                    .unwrap_or_else(|e| log::error!("Error sending notification: {}", e));
+                updates_available.push(workload.clone());
             }
+
             std::thread::spawn(move || database::client::insert_workload(&workload, scan_id))
                 .join()
                 .map_err(|_| "Thread error".to_string())?
@@ -107,6 +108,14 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
                 .expect("TODO: panic message");
         }
     }
+
+    // Send batch notification if there are updates
+    if !updates_available.is_empty() {
+        send_batch_notification(&updates_available)
+            .await
+            .unwrap_or_else(|e| log::error!("Error sending batch notification: {}", e));
+    }
+
     Ok(())
 }
 
