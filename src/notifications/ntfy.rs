@@ -1,4 +1,5 @@
 use futures::SinkExt;
+use url::Url;
 use crate::config::{Ntfy, Settings};
 use crate::models::models::Workload;
 use ntfy::payload::{Action, ActionType};
@@ -58,7 +59,76 @@ pub async fn notify_commit(workload: &Workload) -> Result<(), NtfyError> {
 
 }
 
-fn load_settings() ->Result<Ntfy, String> {
+pub async fn send_batch_notification(workloads: &[Workload]) -> Result<(), NtfyError> {
+    if workloads.is_empty() {
+        log::info!("No updates to report");
+        return Ok(());
+    }
+
+    match load_settings() {
+        Ok(settings) => {
+            let url = settings.url.clone();
+            let topic = settings.topic.clone();
+            let token = settings.token.clone();
+            let callback_url = settings.callback_url.clone();
+
+            let dispatcher = dispatcher::builder(&url)
+                .credentials(Auth::credentials("", &token))
+                .build_blocking()?;
+
+            // Build message
+            let mut message = "**Update Available**\n\n".to_string();
+            for w in workloads {
+                message.push_str(&format!(
+                    "- **{}**: {} → {}\n",
+                    w.name, w.current_version, w.latest_version
+                ));
+            }
+
+            // Build actions if callback_url is configured
+            let actions: Vec<Action> = if let Some(ref callback_base) = callback_url {
+                workloads
+                    .iter()
+                    .filter_map(|w| {
+                        let action_url = format!(
+                            "{}/api/ntfy/callback?action={}&namespace={}",
+                            callback_base, w.name, w.namespace
+                        );
+                        Url::parse(&action_url).ok().map(|url| {
+                            Action::new(ActionType::Http, "Upgrade", url)
+                        })
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            let mut payload = Payload::new(&topic)
+                .message(message)
+                .title("SlackWatch Updates")
+                .tags(["Update"])
+                .priority(Priority::High)
+                .markdown(true);
+
+            if !actions.is_empty() {
+                payload = payload.actions(actions);
+            }
+
+            match dispatcher.send(&payload) {
+                Ok(_) => log::info!("Batch notification sent successfully."),
+                Err(e) => log::error!("Failed to send batch notification: {}", e),
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            log::info!("Failed to load settings: {}", e);
+            Ok(())
+        }
+    }
+}
+
+fn load_settings() -> Result<Ntfy, String> {
     //get settings
     let settings = Settings::new().unwrap_or_else(|err| {
         log::error!("Failed to load settings: {}", err);
