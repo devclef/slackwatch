@@ -68,6 +68,14 @@ pub struct Ntfy {
     pub topic: String,
     pub reminder: String,
     pub token: String,
+    #[serde(default)]
+    pub callback_url: Option<String>,
+    #[serde(default = "default_auto_rescan_delay")]
+    pub auto_rescan_delay: String,
+}
+
+fn default_auto_rescan_delay() -> String {
+    "5m".to_string()
 }
 
 impl Settings {
@@ -169,5 +177,62 @@ mod tests {
             settings.system.schedule, "0 12 * * * *",
             "Environment variable should override file configuration"
         );
+    }
+
+    #[test]
+    fn test_ntfy_config_with_new_fields() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let mut file = File::create(&config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+            [system]
+            schedule = "0 0 * * * *"
+            data_dir = "/tmp/data"
+
+            [notifications.ntfy]
+            url = "http://ntfy.example.com"
+            topic = "updates"
+            reminder = "24h"
+            token = "secrettoken"
+            callback_url = "http://slackwatch:8080"
+            auto_rescan_delay = "10m"
+            "#
+        )
+        .unwrap();
+
+        std::env::set_var("SLACKWATCH_CONFIG", config_path.to_str().unwrap());
+        let settings = Settings::new().expect("Settings should load successfully");
+        let ntfy = settings.notifications.unwrap().ntfy.unwrap();
+        assert_eq!(ntfy.callback_url, Some("http://slackwatch:8080".to_string()));
+        assert_eq!(ntfy.auto_rescan_delay, "10m");
+    }
+
+    #[test]
+    fn test_ntfy_config_default_auto_rescan_delay() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let mut file = File::create(&config_path).unwrap();
+        writeln!(
+            file,
+            r#"
+            [system]
+            schedule = "0 0 * * * *"
+            data_dir = "/tmp/data"
+
+            [notifications.ntfy]
+            url = "http://ntfy.example.com"
+            topic = "updates"
+            reminder = "24h"
+            token = "secrettoken"
+            "#
+        )
+        .unwrap();
+
+        std::env::set_var("SLACKWATCH_CONFIG", config_path.to_str().unwrap());
+        let settings = Settings::new().expect("Settings should load successfully");
+        let ntfy = settings.notifications.unwrap().ntfy.unwrap();
+        assert_eq!(ntfy.auto_rescan_delay, "5m");
     }
 }
