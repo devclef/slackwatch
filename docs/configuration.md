@@ -93,6 +93,24 @@ description: This is set to only prevent failure when the token is not set. In d
 
 ---
 
+#### callback_url
+value: string (None)
+
+default: `null`
+
+description: The base URL of the SlackWatch API server. Used to construct callback URLs for ntfy action buttons. This URL must be reachable from the ntfy server. For in-cluster access use the Kubernetes service URL (e.g., `http://slackwatch.slackwatch.svc.cluster.local:8080`). For external access use the public URL (e.g., `https://slackwatch.example.com`).
+
+---
+
+#### auto_rescan_delay
+value: string
+
+default: `5m`
+
+description: Duration to wait before automatically re-scanning a workload after an upgrade via ntfy callback. This gives Kubernetes time to pull the new image and roll out the deployment. Use `"off"` to disable auto-rescan. Examples: `"1m"`, `"5m"`, `"10m"`, `"1h"`, `"off"`.
+
+---
+
 #### GitOps Configuration
 ```toml
 [[gitops]]
