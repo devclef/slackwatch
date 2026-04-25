@@ -2,7 +2,7 @@ use crate::database;
 use crate::database::client::get_latest_scan_id;
 use crate::kubernetes::client::{find_enabled_workloads, find_specific_workload};
 use crate::models::models::{UpdateStatus, Workload};
-use crate::notifications::ntfy::{send_notification, send_batch_notification};
+use crate::notifications::ntfy::send_batch_notification;
 use crate::repocheck::repocheck::get_tags_for_image;
 use regex::Regex;
 use semver::Version;
@@ -41,7 +41,8 @@ pub async fn update_single_workload(current_workload: Workload) -> Result<(), St
         };
 
         if workload.update_available.to_string() == "Available" {
-            send_notification(&workload)
+            let workloads: Vec<Workload> = vec![workload.clone()];
+            send_batch_notification(&workloads)
                 .await
                 .unwrap_or_else(|e| log::error!("Error sending notification: {}", e));
         }
@@ -64,7 +65,7 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
     log::info!("Found {} workloads", workloads.len());
 
     let scan_id = get_latest_scan_id().unwrap_or(0) + 1;
-    let mut updates_available = Vec::new();
+    let mut updates_available: Vec<Workload> = Vec::new();
 
     for workload in workloads {
         if let Some(_) = find_latest_tag_for_image(&workload).await {

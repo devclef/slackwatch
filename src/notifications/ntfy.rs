@@ -135,43 +135,6 @@ fn load_settings() -> Result<Ntfy, String> {
     }
 }
 
-pub async fn send_notification(workload: &Workload) -> Result<(), NtfyError> {
-    match load_settings() {
-        Ok(settings) => {
-            let url = settings.url;
-            let topic = settings.topic;
-            let token = settings.token;
-
-            let mut dispatcher = dispatcher::builder(&url)
-                .credentials(Auth::credentials("", &token))
-                .build_blocking();
-
-            let message = format!(
-                "Update Available: {} From {} to {}",
-                workload.name, workload.current_version, workload.latest_version
-            );
-
-            let payload = Payload::new(&topic)
-                .message(message)
-                .title(&workload.name)
-                .tags(["Update"])
-                .priority(Priority::High)
-                .markdown(true);
-
-            match dispatcher?.send(&payload) {
-                Ok(_) => log::info!("Payload sent successfully."),
-                Err(e) => log::error!("Failed to send payload: {}", e),
-            }
-            log::info!("Notification sent");
-            Ok(())
-        },
-        Err(e) => {
-            log::info!("Failed to load settings: {}", e);
-            Ok(())
-        }
-    }
-}
-
 use std::time::Duration;
 use tokio::time::sleep;
 
