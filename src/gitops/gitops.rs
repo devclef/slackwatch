@@ -217,11 +217,10 @@ pub async fn run_git_operations(workload: Workload) -> Result<(), Box<dyn Error>
         }
         Err(e) => {
             log::info!("Failed to load settings: {}", e);
-            //Create error
             return Ok(());
-            // Handle the error, e.g., by returning or panicking
         }
     }
+}
 
 async fn run_git_operations_internal(
         settings: Vec<GitopsConfig>,
@@ -263,5 +262,4 @@ async fn run_git_operations_internal(
     }
 
     Ok(())
-}
 }
