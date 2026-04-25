@@ -173,6 +173,24 @@ async fn handle_ntfy_callback(
 ) -> Result<impl Reply, Rejection> {
     let action = query.get("action").cloned();
     let namespace = query.get("namespace").cloned().unwrap_or_else(|| "default".to_string());
+    let provided_token = query.get("token").cloned();
+
+    // Validate token if configured
+    if let Ok(settings) = Settings::new() {
+        if let Some(ref notifications) = settings.notifications {
+            if let Some(ref ntfy) = notifications.ntfy {
+                if let Some(ref expected_token) = ntfy.callback_token {
+                    if provided_token.as_deref() != Some(expected_token.as_str()) {
+                        log::warn!("Unauthorized upgrade attempt: invalid token");
+                        return Ok(warp::reply::with_status(
+                            "Unauthorized".to_string(),
+                            warp::http::StatusCode::UNAUTHORIZED,
+                        ));
+                    }
+                }
+            }
+        }
+    }
 
     match action {
         Some(name) => {

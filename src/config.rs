@@ -70,6 +70,8 @@ pub struct Ntfy {
     pub token: String,
     #[serde(default)]
     pub callback_url: Option<String>,
+    #[serde(default)]
+    pub callback_token: Option<String>,
     #[serde(default = "default_auto_rescan_delay")]
     pub auto_rescan_delay: String,
 }

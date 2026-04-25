@@ -76,10 +76,13 @@ pub async fn send_batch_notification(workloads: &[Workload]) -> Result<(), NtfyE
                 workloads
                     .iter()
                     .filter_map(|w| {
-                        let action_url = format!(
+                        let mut action_url = format!(
                             "{}/api/ntfy/callback?action={}&namespace={}",
                             callback_base, w.name, w.namespace
                         );
+                        if let Some(ref token) = settings.callback_token {
+                            action_url = format!("{}&token={}", action_url, token);
+                        }
                         Url::parse(&action_url).ok().map(|url| {
                             Action::new(ActionType::Http, "Upgrade", url)
                         })

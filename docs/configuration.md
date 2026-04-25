@@ -111,6 +111,15 @@ description: Duration to wait before automatically re-scanning a workload after 
 
 ---
 
+#### callback_token
+value: string (None)
+
+default: `null`
+
+description: Secret token used to authenticate ntfy action callback requests. When set, the callback URL includes this token as a query parameter, and the callback endpoint validates it before processing an upgrade. Use a long random string (e.g., `openssl rand -hex 32`). This is required when SlackWatch is exposed publicly via ingress.
+
+---
+
 #### GitOps Configuration
 ```toml
 [[gitops]]
