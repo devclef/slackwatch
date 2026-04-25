@@ -197,3 +197,68 @@ pub async fn send_notification(workload: &Workload) -> Result<(), NtfyError> {
 
 
 }
+
+use std::time::Duration;
+use tokio::time::sleep;
+
+pub fn parse_duration(s: &str) -> Option<Duration> {
+    if s == "off" {
+        return None;
+    }
+
+    let s = s.trim();
+    if let Some(num) = s.strip_suffix('m') {
+        if let Ok(minutes) = num.parse::<u64>() {
+            return Some(Duration::from_secs(minutes * 60));
+        }
+    }
+    if let Some(num) = s.strip_suffix('h') {
+        if let Ok(hours) = num.parse::<u64>() {
+            return Some(Duration::from_secs(hours * 3600));
+        }
+    }
+    None
+}
+
+pub async fn schedule_rescan(workload: Workload, delay: &str) {
+    if let Some(duration) = parse_duration(delay) {
+        let wl = workload.clone();
+        log::info!("Scheduling re-scan for {} in {:?}", wl.name, duration);
+        tokio::spawn(async move {
+            sleep(duration).await;
+            let name = wl.name.clone();
+            log::info!("Re-scanning workload {}", name);
+            if let Err(e) = crate::services::workloads::update_single_workload(wl).await {
+                log::error!("Re-scan failed for workload {}: {}", name, e);
+            }
+        });
+    } else {
+        log::info!("Auto-rescan disabled or invalid delay: {}", delay);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_duration_minutes() {
+        assert_eq!(parse_duration("5m"), Some(Duration::from_secs(300)));
+        assert_eq!(parse_duration("10m"), Some(Duration::from_secs(600)));
+    }
+
+    #[test]
+    fn test_parse_duration_hours() {
+        assert_eq!(parse_duration("1h"), Some(Duration::from_secs(3600)));
+    }
+
+    #[test]
+    fn test_parse_duration_off() {
+        assert_eq!(parse_duration("off"), None);
+    }
+
+    #[test]
+    fn test_parse_duration_invalid() {
+        assert_eq!(parse_duration("invalid"), None);
+    }
+}
