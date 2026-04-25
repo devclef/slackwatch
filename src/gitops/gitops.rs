@@ -209,7 +209,7 @@ fn push_changes(repo: &Repository, access_token: &str) -> Result<(), git2::Error
     Ok(())
 }
 
-pub async fn run_git_operations(workload: Workload) -> Result<(), Box<dyn Error>> {
+pub async fn run_git_operations(workload: Workload) -> Result<(), Box<dyn Error + Send + Sync>> {
     match load_settings() {
         Ok(settings) => {
             log::info!("Settings: {:?}", settings);
@@ -225,7 +225,7 @@ pub async fn run_git_operations(workload: Workload) -> Result<(), Box<dyn Error>
 async fn run_git_operations_internal(
         settings: Vec<GitopsConfig>,
         workload: Workload,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
 
     for gitops_config in settings {
         log::info!("Gitops config: {:?}", gitops_config);

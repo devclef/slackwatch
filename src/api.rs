@@ -2,12 +2,14 @@ use warp::{Filter, Rejection, Reply};
 use warp::filters::cors::cors;
 use warp::http::Method;
 use serde_json::json;
+use std::collections::HashMap;
 use crate::models::models::Workload;
 use crate::config::Settings;
 use crate::services::workloads::{fetch_and_update_all_watched, update_single_workload};
 use crate::gitops::gitops::run_git_operations;
 use crate::services::scheduler::next_schedule_time;
-use crate::database::client::return_all_workloads;
+use crate::database::client::{return_all_workloads, return_workload};
+use crate::notifications::ntfy::{notify_commit, schedule_rescan};
 
 pub async fn start_api_server() {
     // CORS configuration
@@ -61,6 +63,14 @@ pub async fn start_api_server() {
         .and(warp::get())
         .and_then(handle_get_next_schedule);
 
+    // POST /api/ntfy/callback - Handle ntfy action callbacks
+    let ntfy_callback = api
+        .and(warp::path("ntfy"))
+        .and(warp::path("callback"))
+        .and(warp::post())
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then(handle_ntfy_callback);
+
     // Serve static files from the frontend/dist directory
     let static_files = warp::fs::dir("frontend/dist");
 
@@ -75,6 +85,7 @@ pub async fn start_api_server() {
         .or(refresh_all)
         .or(get_settings)
         .or(get_next_schedule)
+        .or(ntfy_callback)
         .or(static_files)
         .or(spa_fallback)
         .with(cors);
@@ -153,6 +164,61 @@ async fn handle_get_next_schedule() -> Result<impl Reply, Rejection> {
             log::error!("Failed to get settings for next schedule: {}", e);
             let error = json!({ "error": format!("Failed to get settings for next schedule: {}", e) });
             Ok(warp::reply::json(&error))
+        }
+    }
+}
+
+async fn handle_ntfy_callback(
+    query: HashMap<String, String>,
+) -> Result<impl Reply, Rejection> {
+    let action = query.get("action").cloned();
+    let namespace = query.get("namespace").cloned().unwrap_or_else(|| "default".to_string());
+
+    match action {
+        Some(name) => {
+            match return_workload(name.clone(), namespace.clone()) {
+                Ok(workload) => {
+                    let wl = workload.clone();
+                    match run_git_operations(wl.clone()).await {
+                        Ok(_) => {
+                            let _ = notify_commit(&wl).await;
+
+                            if let Ok(settings) = Settings::new() {
+                                if let Some(ref notifications) = settings.notifications {
+                                    if let Some(ref ntfy) = notifications.ntfy {
+                                        schedule_rescan(wl.clone(), &ntfy.auto_rescan_delay).await;
+                                    }
+                                }
+                            }
+
+                            Ok(warp::reply::with_status(
+                                format!("Upgrade initiated for {}", name),
+                                warp::http::StatusCode::OK,
+                            ))
+                        }
+                        Err(e) => {
+                            log::error!("GitOps failed for {}: {}", name, e);
+                            Ok(warp::reply::with_status(
+                                format!("Upgrade failed for {}: {}", name, e),
+                                warp::http::StatusCode::OK,
+                            ))
+                        }
+                    }
+                }
+                Err(_) => {
+                    log::error!("Workload {} not found in DB", name);
+                    Ok(warp::reply::with_status(
+                        format!("Workload {} not found", name),
+                        warp::http::StatusCode::OK,
+                    ))
+                }
+            }
+        }
+        None => {
+            Ok(warp::reply::with_status(
+                "No action parameter provided".to_string(),
+                warp::http::StatusCode::OK,
+            ))
         }
     }
 }
