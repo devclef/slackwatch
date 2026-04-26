@@ -45,7 +45,7 @@ Some(Workload {
          namespace: namespace.clone(),
          image: image,
          current_version: current_version, // Simplified for demonstration
-         latest_version: "1.0.0".to_string(), // Simplified for demonstration
+         latest_version: String::new(), // Computed during scan via parse_tags
          exclude_pattern: annotations.get("slackwatch.exclude").cloned(),
          include_pattern: annotations.get("slackwatch.include").cloned(),
          git_ops_repo: annotations.get("slackwatch.repo").cloned(),

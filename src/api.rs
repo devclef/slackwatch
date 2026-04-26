@@ -120,7 +120,17 @@ async fn handle_update_workload(workload: Workload) -> Result<impl Reply, Reject
 }
 
 async fn handle_upgrade_workload(workload: Workload) -> Result<impl Reply, Rejection> {
-    match run_git_operations(workload).await {
+    // Fetch fresh data from database instead of trusting frontend's latest_version
+    let fresh_workload = match return_workload(workload.name.clone(), workload.namespace.clone()) {
+        Ok(wl) => wl,
+        Err(e) => {
+            log::error!("Failed to fetch workload for upgrade: {}", e);
+            let error = json!({ "error": "Workload not found in database" });
+            return Ok(warp::reply::json(&error));
+        }
+    };
+
+    match run_git_operations(fresh_workload).await {
         Ok(_) => Ok(warp::reply::json(&json!({ "status": "success" }))),
         Err(e) => {
             log::error!("Failed to upgrade workload: {}", e);
