@@ -24,6 +24,6 @@ jobs:
           context: ./
           file: ./Dockerfile
           push: true
-          tags: ghcr.io/slackspace-io/slackwatch:${{ github.ref_name }},ghcr.io/slackspace-io/slackwatch:latest
+          tags: ghcr.io/devclef/slackwatch:${{ github.ref_name }},ghcr.io/devclef/slackwatch:latest
 
 
