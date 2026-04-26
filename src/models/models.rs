@@ -16,7 +16,7 @@ pub struct Workload {
     pub current_version: String,
     pub latest_version: String,
     pub scan_exhausted: String,
-    pub regex_error: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(

@@ -53,7 +53,7 @@ Some(Workload {
          update_available: UpdateStatus::NotAvailable, // Default value, adjust as needed
          last_scanned: chrono::Utc::now().to_rfc3339(),
          scan_exhausted: "False".to_string(),
-         regex_error: None,
+         error: None,
      })
  }
 

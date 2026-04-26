@@ -21,7 +21,7 @@ pub async fn update_single_workload(current_workload: Workload) -> Result<(), St
         let workload = match result {
             Ok(w) => w,
             Err(e) => {
-                log::error!("Regex error for workload {}: {}", workload.name, e);
+                log::error!("Scan error for workload {}: {}", workload.name, e);
                 Workload {
                     name: workload.name.clone(),
                     exclude_pattern: workload.exclude_pattern.clone(),
@@ -35,7 +35,7 @@ pub async fn update_single_workload(current_workload: Workload) -> Result<(), St
                     latest_version: String::new(),
                     git_directory: workload.git_directory.clone(),
                     scan_exhausted: "False".to_string(),
-                    regex_error: Some(e.to_string()),
+                    error: Some(e.to_string()),
                 }
             }
         };
@@ -73,7 +73,7 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
             let workload = match result {
                 Ok(w) => w,
                 Err(e) => {
-                    log::error!("Regex error for workload {}: {}", workload.name, e);
+                    log::error!("Scan error for workload {}: {}", workload.name, e);
                     Workload {
                         name: workload.name.clone(),
                         exclude_pattern: workload.exclude_pattern.clone(),
@@ -87,7 +87,7 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
                         latest_version: String::new(),
                         git_directory: workload.git_directory.clone(),
                         scan_exhausted: "False".to_string(),
-                        regex_error: Some(e.to_string()),
+                        error: Some(e.to_string()),
                     }
                 }
             };
@@ -251,6 +251,6 @@ Ok(Workload {
          latest_version: latest_version.clone(),
          git_directory: workload.git_directory.clone(),
          scan_exhausted: exhausted.to_string(),
-         regex_error: None,
+         error: None,
      })
  }

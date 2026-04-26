@@ -7,7 +7,7 @@ export interface Workload {
    last_scanned: string;
    update_available: 'Available' | 'NotAvailable' | 'Unknown';
    scan_exhausted: string;
-   regex_error?: string;
+   error?: string;
 }
 
 export interface Settings {

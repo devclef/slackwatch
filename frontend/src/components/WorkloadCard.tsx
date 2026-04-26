@@ -52,9 +52,9 @@ return (
          <div className="scan-exhausted">Scan Exhausted</div>
        )}
 
-       {workload.regex_error && (
+       {workload.error && (
          <div className="regex-error">
-           <strong>Regex Error:</strong> {workload.regex_error}
+           <strong>Error:</strong> {workload.error}
          </div>
        )}
 

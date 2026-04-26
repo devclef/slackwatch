@@ -46,7 +46,7 @@ pub fn return_workload(name: String, namespace: String) -> Result<Workload> {
             last_scanned: row.get(10)?,
             git_directory: row.get(13)?,
             scan_exhausted: row.get(14)?,
-            regex_error: row.get(15).ok(),
+            error: row.get(15).ok(),
         })
     })?;
     if let Some(workload) = workload.next() {
@@ -100,7 +100,7 @@ JOIN MaxLastScanned mls ON f.name = mls.name AND f.namespace = mls.namespace AND
             last_scanned: row.get(10)?,
             git_directory: row.get(13)?,
             scan_exhausted: row.get(14)?,
-            regex_error: row.get(15).ok(),
+            error: row.get(15).ok(),
         })
     })?;
     let mut result = Vec::new();
@@ -157,7 +157,7 @@ pub fn insert_workload(workload: &Workload, scan_id: i32) -> Result<()> {
              &workload.name,
              workload.git_directory.as_ref().map(String::as_str).unwrap_or_default(),
              &workload.scan_exhausted.to_string(),
-             &workload.regex_error.as_deref().unwrap_or(""),
+             &workload.error.as_deref().unwrap_or(""),
          ],
      ) {
          Ok(_) => Ok(()),
