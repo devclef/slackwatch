@@ -120,17 +120,13 @@ async fn handle_update_workload(workload: Workload) -> Result<impl Reply, Reject
 }
 
 async fn handle_upgrade_workload(workload: Workload) -> Result<impl Reply, Rejection> {
-    // Fetch fresh data from database instead of trusting frontend's latest_version
-    let fresh_workload = match return_workload(workload.name.clone(), workload.namespace.clone()) {
-        Ok(wl) => wl,
-        Err(e) => {
-            log::error!("Failed to fetch workload for upgrade: {}", e);
-            let error = json!({ "error": "Workload not found in database" });
-            return Ok(warp::reply::json(&error));
-        }
-    };
+    if workload.latest_version.is_empty() {
+        log::warn!("Cannot upgrade {}: no latest_version", workload.name);
+        let error = json!({ "error": "No version to upgrade to - please refresh the workload first" });
+        return Ok(warp::reply::json(&error));
+    }
 
-    match run_git_operations(fresh_workload).await {
+    match run_git_operations(workload).await {
         Ok(_) => Ok(warp::reply::json(&json!({ "status": "success" }))),
         Err(e) => {
             log::error!("Failed to upgrade workload: {}", e);
@@ -206,6 +202,13 @@ async fn handle_ntfy_callback(
         Some(name) => {
             match return_workload(name.clone(), namespace.clone()) {
                 Ok(workload) => {
+                    if workload.latest_version.is_empty() {
+                        log::warn!("Cannot upgrade {} via ntfy: no latest_version in database", name);
+                        return Ok(warp::reply::with_status(
+                            format!("No version to upgrade to for {}. Please refresh first.", name),
+                            warp::http::StatusCode::OK,
+                        ));
+                    }
                     let wl = workload.clone();
                     match run_git_operations(wl.clone()).await {
                         Ok(_) => {

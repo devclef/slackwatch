@@ -161,6 +161,9 @@ pub fn insert_workload(workload: &Workload, scan_id: i32) -> Result<()> {
          ],
      ) {
          Ok(_) => Ok(()),
-         Err(e) => Err(e),
+         Err(e) => {
+             log::error!("Failed to insert workload into database: {}", e);
+             Err(e)
+         }
      }
 }
