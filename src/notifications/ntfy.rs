@@ -77,8 +77,8 @@ pub async fn send_batch_notification(workloads: &[Workload]) -> Result<(), NtfyE
                     .iter()
                     .filter_map(|w| {
                         let mut action_url = format!(
-                            "{}/api/ntfy/callback?action={}&namespace={}",
-                            callback_base, w.name, w.namespace
+                            "{}/api/ntfy/callback?action={}&namespace={}&latest_version={}",
+                            callback_base, w.name, w.namespace, w.latest_version
                         );
                         if let Some(ref token) = settings.callback_token {
                             action_url = format!("{}&token={}", action_url, token);

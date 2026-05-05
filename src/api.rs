@@ -180,6 +180,7 @@ async fn handle_ntfy_callback(
     let action = query.get("action").cloned();
     let namespace = query.get("namespace").cloned().unwrap_or_else(|| "default".to_string());
     let provided_token = query.get("token").cloned();
+    let latest_version = query.get("latest_version").cloned();
 
     // Validate token if configured
     if let Ok(settings) = Settings::new() {
@@ -201,14 +202,18 @@ async fn handle_ntfy_callback(
     match action {
         Some(name) => {
             match return_workload(name.clone(), namespace.clone()) {
-                Ok(workload) => {
-                    if workload.latest_version.is_empty() {
+                Ok(mut workload) => {
+                    let target_version = latest_version
+                        .or_else(|| Some(workload.latest_version.clone()))
+                        .unwrap_or_default();
+                    if target_version.is_empty() {
                         log::warn!("Cannot upgrade {} via ntfy: no latest_version in database", name);
                         return Ok(warp::reply::with_status(
                             format!("No version to upgrade to for {}. Please refresh first.", name),
                             warp::http::StatusCode::OK,
                         ));
                     }
+                    workload.latest_version = target_version;
                     let wl = workload.clone();
                     match run_git_operations(wl.clone()).await {
                         Ok(_) => {
