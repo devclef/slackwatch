@@ -1,5 +1,5 @@
 // kubernetes/client.rs
-use crate::models::models::{UpdateStatus, Workload};
+use crate::models::{UpdateStatus, Workload};
 use futures::future::join_all;
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
@@ -41,10 +41,10 @@ async fn create_workload_from_pod(pod: Pod) -> Option<Workload> {
     let current_version = image_parts.get(1).unwrap_or(&"latest").to_string();
 
 Some(Workload {
-         name: name.clone(),
+         name,
          namespace: namespace.clone(),
-         image: image,
-         current_version: current_version, // Simplified for demonstration
+         image,
+         current_version,
          latest_version: String::new(), // Computed during scan via parse_tags
          exclude_pattern: annotations.get("slackwatch.exclude").cloned(),
          include_pattern: annotations.get("slackwatch.include").cloned(),
@@ -92,7 +92,7 @@ pub async fn find_enabled_workloads() -> Result<Vec<Workload>, KubeError> {
     let workloads: Vec<Workload> = join_all(futures)
         .await
         .into_iter()
-        .filter_map(|workload_option| workload_option)
+        .flatten()
         .collect();
 
     Ok(workloads)

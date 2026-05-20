@@ -1,5 +1,4 @@
-use crate::models::models::UpdateStatus;
-use crate::models::models::Workload;
+use crate::models::{UpdateStatus, Workload};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
 use rusqlite::{Connection, Error, Result, ToSql};
 
@@ -32,7 +31,7 @@ pub fn create_table_if_not_exist() -> Result<()> {
 pub fn return_workload(name: String, namespace: String) -> Result<Workload> {
     let conn = Connection::open("data.db")?;
     let mut stmt = conn.prepare("SELECT * FROM workloads WHERE name = ?1 AND namespace = ?2")?;
-    let mut workload = stmt.query_map(&[&name, &namespace], |row| {
+    let mut workload = stmt.query_map([&name, &namespace], |row| {
         Ok(Workload {
             name: row.get(1)?,
             image: row.get(2)?,
@@ -49,11 +48,11 @@ pub fn return_workload(name: String, namespace: String) -> Result<Workload> {
             error: row.get(15).ok(),
         })
     })?;
-    if let Some(workload) = workload.next() {
-        return Ok(workload?);
+    if let Some(w) = workload.next() {
+        w
     } else {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
-    };
+        Err(rusqlite::Error::QueryReturnedNoRows)
+    }
 }
 
 pub fn return_all_workloads() -> Result<Vec<Workload>> {
@@ -139,31 +138,28 @@ pub fn get_latest_scan_id() -> std::result::Result<i32, Error> {
 pub fn insert_workload(workload: &Workload, scan_id: i32) -> Result<()> {
     let conn = Connection::open("data.db")?;
     //get scan_id
-    match conn.execute(
+    conn.execute(
          "INSERT INTO workloads (name, image, namespace, git_ops_repo, include_pattern, exclude_pattern, update_available, current_version, latest_version, last_scanned, scan_id, scan_type, git_directory, scan_exhausted, regex_error)
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
          [
              &workload.name,
              &workload.image,
              &workload.namespace,
-             workload.git_ops_repo.as_ref().map(String::as_str).unwrap_or_default(), // Handle potential None
-             workload.include_pattern.as_ref().map(String::as_str).unwrap_or_default(),
-             workload.exclude_pattern.as_ref().map(String::as_str).unwrap_or_default(),
-             &workload.update_available.to_string(), // Consider an enum for clarity
+             workload.git_ops_repo.as_deref().unwrap_or_default(),
+             workload.include_pattern.as_deref().unwrap_or_default(),
+             workload.exclude_pattern.as_deref().unwrap_or_default(),
+             &workload.update_available.to_string(),
              &workload.current_version,
              &workload.latest_version,
              &workload.last_scanned,
              &scan_id.to_string(),
              &workload.name,
-             workload.git_directory.as_ref().map(String::as_str).unwrap_or_default(),
+             workload.git_directory.as_deref().unwrap_or_default(),
              &workload.scan_exhausted.to_string(),
-             &workload.error.as_deref().unwrap_or(""),
+             workload.error.as_deref().unwrap_or(""),
          ],
-     ) {
-         Ok(_) => Ok(()),
-         Err(e) => {
-             log::error!("Failed to insert workload into database: {}", e);
-             Err(e)
-         }
-     }
+     ).map_err(|e| {
+         log::error!("Failed to insert workload into database: {}", e);
+         e
+     }).map(|_| ())
 }

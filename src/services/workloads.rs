@@ -1,9 +1,9 @@
 use crate::database;
 use crate::database::client::get_latest_scan_id;
 use crate::kubernetes::client::{find_enabled_workloads, find_specific_workload};
-use crate::models::models::{UpdateStatus, Workload};
+use crate::models::{UpdateStatus, Workload};
 use crate::notifications::ntfy::send_batch_notification;
-use crate::repocheck::repocheck::get_tags_for_image;
+use crate::repocheck::get_tags_for_image;
 use regex::Regex;
 use semver::Version;
 
@@ -68,7 +68,7 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
     let mut updates_available: Vec<Workload> = Vec::new();
 
     for workload in workloads {
-        if let Some(_) = find_latest_tag_for_image(&workload).await {
+        if find_latest_tag_for_image(&workload).await.is_some() {
             let result = parse_tags(&workload).await;
             let workload = match result {
                 Ok(w) => w,
@@ -139,13 +139,13 @@ pub async fn test_call() {
     let workloads = find_enabled_workloads().await.unwrap();
     for workload in workloads.iter().take(1) {
         //let workload = workload.clone();
-        let workload = parse_tags(&workload).await.unwrap();
+        let workload = parse_tags(workload).await.unwrap();
         log::info!("Workload: {:?}", workload)
     }
 }
 
 fn strip_tag_lettings(tag: &str) -> String {
-    tag.chars().skip_while(|c| !c.is_digit(10)).collect()
+    tag.chars().skip_while(|c| !c.is_ascii_digit()).collect()
 }
 
 pub async fn parse_tags(workload: &Workload) -> Result<Workload, String> {
@@ -171,10 +171,7 @@ pub async fn parse_tags(workload: &Workload) -> Result<Workload, String> {
         log::info!("Include pattern defined, using only include");
         log::info!("Include pattern: {:?}", workload.include_pattern);
 
-        tags = tags
-            .into_iter()
-            .filter(|tag| include_patterns.iter().any(|regex| regex.is_match(tag)))
-            .collect();
+        tags.retain(|tag| include_patterns.iter().any(|regex| regex.is_match(tag)));
 
         log::info!("Filtered tags: {:?}", tags);
     }
@@ -198,10 +195,7 @@ pub async fn parse_tags(workload: &Workload) -> Result<Workload, String> {
         log::info!("Exclude pattern defined, using only exclude");
         log::info!("Exclude pattern: {:?}", workload.exclude_pattern);
 
-        tags = tags
-            .into_iter()
-            .filter(|tag| exclude_patterns.iter().all(|regex| !regex.is_match(tag)))
-            .collect();
+        tags.retain(|tag| exclude_patterns.iter().all(|regex| !regex.is_match(tag)));
 
         log::info!("Filtered tags: {:?}", tags);
     }

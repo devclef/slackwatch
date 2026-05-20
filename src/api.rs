@@ -3,10 +3,10 @@ use warp::filters::cors::cors;
 use warp::http::Method;
 use serde_json::json;
 use std::collections::HashMap;
-use crate::models::models::Workload;
+use crate::models::Workload;
 use crate::config::Settings;
 use crate::services::workloads::{fetch_and_update_all_watched, update_single_workload};
-use crate::gitops::gitops::run_git_operations;
+use crate::gitops::run_git_operations;
 use crate::services::scheduler::next_schedule_time;
 use crate::database::client::{return_all_workloads, return_workload};
 use crate::notifications::ntfy::{notify_commit, schedule_rescan};
@@ -162,7 +162,7 @@ async fn handle_get_next_schedule() -> Result<impl Reply, Rejection> {
     match Settings::new() {
         Ok(settings) => {
             let schedule_str = &settings.system.schedule;
-            let next_schedule = next_schedule_time(&schedule_str).await;
+            let next_schedule = next_schedule_time(schedule_str).await;
             // Ensure we're returning a string, not an object
             Ok(warp::reply::json(&next_schedule))
         },

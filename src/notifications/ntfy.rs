@@ -1,7 +1,7 @@
 use futures::SinkExt;
 use url::Url;
 use crate::config::{Ntfy, Settings};
-use crate::models::models::Workload;
+use crate::models::Workload;
 use ntfy::payload::{Action, ActionType};
 use ntfy::{dispatcher, Auth, Dispatcher, Payload, Priority};
 use ntfy::error::Error as NtfyError;
@@ -126,12 +126,12 @@ fn load_settings() -> Result<Ntfy, String> {
     });
     if let Some(notifications) = settings.notifications {
         if let Some(ntfy_config) = notifications.ntfy {
-            return Ok(ntfy_config.clone());
+            Ok(ntfy_config.clone())
         } else {
-            return Err("No Ntfy Config Found".to_string());
+            Err("No Ntfy Config Found".to_string())
         }
     } else {
-        return Err("No Notifications Config Found".to_string());
+        Err("No Notifications Config Found".to_string())
     }
 }
 

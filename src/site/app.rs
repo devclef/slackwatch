@@ -7,7 +7,7 @@ use serde_derive::{Deserialize, Serialize};
 use wasm_bindgen_futures::spawn_local;
 use crate::config::{GitopsConfig, Notifications, Settings, System};
 use crate::models;
-use crate::models::models::Workload;
+use crate::models::Workload;
 
 
 #[derive(Routable, Clone)]
@@ -188,7 +188,7 @@ fn NextScheduledTimeCard() -> Element {
 fn DebugWorkloadCard(props: WorkloadCardProps) -> Element {
     rsx! {
         div {
-            class: if props.workload.update_available == models::models::UpdateStatus::Available {
+            class: if props.workload.update_available == models::UpdateStatus::Available {
                 "workload-card-update-available"
             } else {
                 "workload-card"
@@ -199,7 +199,7 @@ fn DebugWorkloadCard(props: WorkloadCardProps) -> Element {
             div { class: "workload-version", "Current Tag {props.workload.current_version}" },
             div { class: "workload-image", "Image: {props.workload.image}" },
             div { class: "workload-last-scanned", "Last Scanned: {props.workload.last_scanned}" },
-            if props.workload.update_available == models::models::UpdateStatus::Available {
+            if props.workload.update_available == models::UpdateStatus::Available {
                 div { class: "workload-latest-version", "Latest Version Available: {props.workload.latest_version}" }
                 br {}
             }
@@ -214,7 +214,7 @@ fn WorkloadCard(props: WorkloadCardProps) -> Element {
     let data = use_signal(|| {props.workload.clone()});
     rsx! {
         div {
-            class: if props.workload.update_available == models::models::UpdateStatus::Available {
+            class: if props.workload.update_available == models::UpdateStatus::Available {
                 "workload-card-update-available"
             } else {
                 "workload-card"
@@ -233,7 +233,7 @@ fn WorkloadCard(props: WorkloadCardProps) -> Element {
             div { class: "workload-version", "Current Tag {props.workload.current_version}" },
             div { class: "workload-image", "Image: {props.workload.image}" },
             div { class: "workload-last-scanned", "Last Scanned: {props.workload.last_scanned}" },
-            if props.workload.update_available == models::models::UpdateStatus::Available {
+            if props.workload.update_available == models::UpdateStatus::Available {
                 div { class: "workload-latest-version", "Latest Version Available: {props.workload.latest_version}" }
                 br {}
                 button { onclick: move |_| {
@@ -314,7 +314,7 @@ fn All() -> Element {
                         {workloads.iter().map(|w|
                             rsx!{
                             div {
-                            class: if w.update_available == models::models::UpdateStatus::Available {
+                            class: if w.update_available == models::UpdateStatus::Available {
                                 "workload-card-update-available"
                             } else {
                                 "workload-card"
@@ -325,7 +325,7 @@ fn All() -> Element {
                             div { class: "workload-image", "Image: {w.image}" },
                             div { class: "workload-last-scanned", "Last Scanned: {w.last_scanned}" },
                                         div { class: "workload-name", "{w.latest_version}" },
-                            if w.update_available == models::models::UpdateStatus::Available {
+                            if w.update_available == models::UpdateStatus::Available {
                                 div { class: "workload-update-available", "Update Available" }
                             }
                             }
@@ -367,7 +367,7 @@ async fn get_next_schedule_time(settings: Settings) -> Result<String, ServerFnEr
 async fn upgrade_workload(workload: Workload) -> Result<(), ServerFnError> {
     log::info!("upgrade_workload: {:?}", workload);
     println!("upgrade_workload");
-       use crate::gitops::gitops::run_git_operations;
+       use crate::gitops::run_git_operations;
     let result = run_git_operations(workload).await;
     Ok(result.unwrap())
 }

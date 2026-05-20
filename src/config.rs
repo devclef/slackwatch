@@ -94,7 +94,7 @@ impl Settings {
             .build()?;
         //print config
         println!("{:?}", s);
-        s.try_deserialize::<Settings>().or_else(|e| Err(e))
+        s.try_deserialize::<Settings>()
     }
     //add clone
 }
