@@ -11,14 +11,6 @@ use std::path::Path;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use crate::notifications::ntfy::notify_commit;
 
-fn parse_k8s_yaml<T: serde::de::DeserializeOwned>(contents: &str) -> Result<T, String> {
-    let yaml_value: serde_yaml::Value =
-        serde_yaml::from_str(contents).map_err(|e| format!("YAML parse error: {}", e))?;
-    let json_value = serde_json::to_value(&yaml_value)
-        .map_err(|e| format!("YAML→JSON conversion error: {}", e))?;
-    serde_json::from_value(json_value).map_err(|e| format!("K8s deserialization error: {}", e))
-}
-
 fn load_settings() -> Result<Vec<GitopsConfig>, String> {
     let settings = Settings::new().unwrap_or_else(|err| {
         log::error!("Failed to load settings: {}", err);
@@ -96,7 +88,7 @@ fn edit_files(local_path: &Path, workload: &Workload) {
             let mut contents = String::new();
             file.read_to_string(&mut contents).unwrap();
             let mut image_updated = false;
-            let statefulset_result: Result<StatefulSet, _> = parse_k8s_yaml(&contents);
+            let statefulset_result: Result<StatefulSet, _> = serde_yaml_ng::from_str(&contents);
             if let Ok(mut statefulset) = statefulset_result {
                 if let Some(spec) = statefulset.spec.as_mut() {
                     if let Some(template_spec) = spec.template.spec.as_mut() {
@@ -118,11 +110,11 @@ fn edit_files(local_path: &Path, workload: &Workload) {
                         .truncate(true)
                         .open(entry.path())
                         .unwrap();
-                    file.write_all(serde_yaml::to_string(&statefulset).unwrap().as_bytes())
+                    file.write_all(serde_yaml_ng::to_string(&statefulset).unwrap().as_bytes())
                         .unwrap();
                 }
             }
-            let deployment_result: Result<Deployment, _> = parse_k8s_yaml(&contents);
+            let deployment_result: Result<Deployment, _> = serde_yaml_ng::from_str(&contents);
             match deployment_result {
                 Ok(mut deployment) => {
                     log::info!("Deployment: {:?}", &deployment);
@@ -144,7 +136,7 @@ fn edit_files(local_path: &Path, workload: &Workload) {
                             .truncate(true)
                             .open(entry.path())
                             .unwrap();
-                        file.write_all(serde_yaml::to_string(&deployment).unwrap().as_bytes())
+                        file.write_all(serde_yaml_ng::to_string(&deployment).unwrap().as_bytes())
                             .unwrap();
                     }
                 }
