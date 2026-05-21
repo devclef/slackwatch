@@ -11,6 +11,14 @@ use std::path::Path;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use crate::notifications::ntfy::notify_commit;
 
+fn parse_k8s_yaml<T: serde::de::DeserializeOwned>(contents: &str) -> Result<T, String> {
+    let yaml_value: serde_yaml::Value =
+        serde_yaml::from_str(contents).map_err(|e| format!("YAML parse error: {}", e))?;
+    let json_value = serde_json::to_value(&yaml_value)
+        .map_err(|e| format!("YAML→JSON conversion error: {}", e))?;
+    serde_json::from_value(json_value).map_err(|e| format!("K8s deserialization error: {}", e))
+}
+
 fn load_settings() -> Result<Vec<GitopsConfig>, String> {
     let settings = Settings::new().unwrap_or_else(|err| {
         log::error!("Failed to load settings: {}", err);
@@ -88,7 +96,7 @@ fn edit_files(local_path: &Path, workload: &Workload) {
             let mut contents = String::new();
             file.read_to_string(&mut contents).unwrap();
             let mut image_updated = false;
-            let statefulset_result: Result<StatefulSet, _> = serde_yaml::from_str(&contents);
+            let statefulset_result: Result<StatefulSet, _> = parse_k8s_yaml(&contents);
             if let Ok(mut statefulset) = statefulset_result {
                 if let Some(spec) = statefulset.spec.as_mut() {
                     if let Some(template_spec) = spec.template.spec.as_mut() {
@@ -114,33 +122,35 @@ fn edit_files(local_path: &Path, workload: &Workload) {
                         .unwrap();
                 }
             }
-            log::info!("Deployment checking");
-            let deployment_result: Result<Deployment, _> = serde_yaml::from_str(&contents);
-            if let Ok(mut deployment) = deployment_result {
-                log::info!("Deployment: {:?}", &deployment);
-                if let Some(spec) = deployment.spec.as_mut() {
-                    if let Some(template_spec) = spec.template.spec.as_mut() {
-                        for container in &mut template_spec.containers {
-                            if container.image.as_deref().unwrap_or_default().contains(base_image) {
-                                log::info!("Found target image in file: {:?}", entry.path());
-                                container.image = Some(new_image.clone());
-                                image_updated = true;
+            let deployment_result: Result<Deployment, _> = parse_k8s_yaml(&contents);
+            match deployment_result {
+                Ok(mut deployment) => {
+                    log::info!("Deployment: {:?}", &deployment);
+                    if let Some(spec) = deployment.spec.as_mut() {
+                        if let Some(template_spec) = spec.template.spec.as_mut() {
+                            for container in &mut template_spec.containers {
+                                if container.image.as_deref().unwrap_or_default().contains(base_image) {
+                                    log::info!("Found target image in file: {:?}", entry.path());
+                                    container.image = Some(new_image.clone());
+                                    image_updated = true;
+                                }
                             }
                         }
                     }
+                    if image_updated {
+                        log::info!("Updating image in file: {:?}", entry.path());
+                        let mut file = OpenOptions::new()
+                            .write(true)
+                            .truncate(true)
+                            .open(entry.path())
+                            .unwrap();
+                        file.write_all(serde_yaml::to_string(&deployment).unwrap().as_bytes())
+                            .unwrap();
+                    }
                 }
-                if image_updated {
-                    log::info!("Updating image in file: {:?}", entry.path());
-                    let mut file = OpenOptions::new()
-                        .write(true)
-                        .truncate(true)
-                        .open(entry.path())
-                        .unwrap();
-                    file.write_all(serde_yaml::to_string(&deployment).unwrap().as_bytes())
-                        .unwrap();
+                Err(e) => {
+                    log::warn!("Skipping {:?}: not a valid Deployment ({}))", entry.path(), e);
                 }
-            } else {
-                log::info!("Not a deployment {:?}", entry.path());
             }
         }
     }
