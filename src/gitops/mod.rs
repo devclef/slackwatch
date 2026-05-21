@@ -3,6 +3,8 @@ use crate::models::Workload;
 use git2::{
     Commit, Cred, ErrorCode, IndexAddOption, PushOptions, RemoteCallbacks, Repository, Signature,
 };
+use serde_yaml_ng::value::TaggedValue;
+use serde_yaml_ng::Value as YamlValue;
 use walkdir::WalkDir;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
@@ -10,6 +12,50 @@ use std::io::{Read, Write};
 use std::path::Path;
 use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use crate::notifications::ntfy::notify_commit;
+
+fn parse_k8s_yaml<T: serde::de::DeserializeOwned>(contents: &str) -> Result<T, String> {
+    let yaml: YamlValue =
+        serde_yaml_ng::from_str(contents).map_err(|e| format!("YAML parse error: {}", e))?;
+    let fixed = fix_octal_strings(&yaml);
+    let json = serde_json::to_value(&fixed)
+        .map_err(|e| format!("YAML→JSON conversion error: {}", e))?;
+    serde_json::from_value(json).map_err(|e| format!("K8s deserialization error: {}", e))
+}
+
+fn fix_octal_strings(v: &YamlValue) -> YamlValue {
+    match v {
+        YamlValue::Mapping(m) => {
+            let mapped = m.iter().map(|(k, val)| (k.clone(), fix_octal_strings(val)));
+            YamlValue::Mapping(mapped.collect())
+        }
+        YamlValue::Sequence(s) => {
+            YamlValue::Sequence(s.iter().map(fix_octal_strings).collect())
+        }
+        YamlValue::Number(_) | YamlValue::Bool(_) | YamlValue::Null => v.clone(),
+        YamlValue::String(s) => {
+            if let Some(n) = s.strip_prefix("0o") {
+                if let Ok(val) = i64::from_str_radix(n, 8) {
+                    return YamlValue::Number(serde_yaml_ng::Number::from(val));
+                }
+            }
+            if s.len() >= 2
+                && s.starts_with('0')
+                && s[1..].chars().all(|c| c.is_ascii_digit())
+            {
+                if let Ok(val) = i64::from_str_radix(s, 8) {
+                    return YamlValue::Number(serde_yaml_ng::Number::from(val));
+                }
+            }
+            v.clone()
+        }
+        YamlValue::Tagged(t) => {
+            YamlValue::Tagged(Box::new(TaggedValue {
+                tag: t.tag.clone(),
+                value: fix_octal_strings(&t.value),
+            }))
+        }
+    }
+}
 
 fn load_settings() -> Result<Vec<GitopsConfig>, String> {
     let settings = Settings::new().unwrap_or_else(|err| {
@@ -88,7 +134,7 @@ fn edit_files(local_path: &Path, workload: &Workload) {
             let mut contents = String::new();
             file.read_to_string(&mut contents).unwrap();
             let mut image_updated = false;
-            let statefulset_result: Result<StatefulSet, _> = serde_yaml_ng::from_str(&contents);
+            let statefulset_result: Result<StatefulSet, _> = parse_k8s_yaml(&contents);
             if let Ok(mut statefulset) = statefulset_result {
                 if let Some(spec) = statefulset.spec.as_mut() {
                     if let Some(template_spec) = spec.template.spec.as_mut() {
@@ -114,7 +160,7 @@ fn edit_files(local_path: &Path, workload: &Workload) {
                         .unwrap();
                 }
             }
-            let deployment_result: Result<Deployment, _> = serde_yaml_ng::from_str(&contents);
+            let deployment_result: Result<Deployment, _> = parse_k8s_yaml(&contents);
             match deployment_result {
                 Ok(mut deployment) => {
                     log::info!("Deployment: {:?}", &deployment);
