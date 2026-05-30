@@ -104,10 +104,28 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::Write;
+    use std::sync::Mutex;
     use tempfile::tempdir;
+
+    // Serialize config tests — they share process-wide env vars that the
+    // `config` crate caches, so parallel execution causes cross-test leakage.
+    static TEST_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn clear_env() {
+        std::env::remove_var("SLACKWATCH_CONFIG");
+        std::env::remove_var("SLACKWATCH_SYSTEM.SCHEDULE");
+        std::env::remove_var("SLACKWATCH_SYSTEM.DATA_DIR");
+        std::env::remove_var("SLACKWATCH_GITOPS_0_NAME");
+        std::env::remove_var("SLACKWATCH_NOTIFICATIONS.NTFY.URL");
+        std::env::remove_var("SLACKWATCH_NOTIFICATIONS.NTFY.TOPIC");
+        std::env::remove_var("SLACKWATCH_NOTIFICATIONS.NTFY.REMINDER");
+        std::env::remove_var("SLACKWATCH_NOTIFICATIONS.NTFY.TOKEN");
+    }
 
     #[test]
     fn test_settings_load_success() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        clear_env();
         let dir = tempdir().unwrap();
         let config_path = dir.path().join("config.toml");
         let mut file = File::create(&config_path).unwrap();
@@ -146,6 +164,8 @@ mod tests {
 
     #[test]
     fn test_environment_override() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        clear_env();
         let dir = tempdir().unwrap();
         let config_path = dir.path().join("config.toml");
         let mut file = File::create(&config_path).unwrap();
@@ -183,6 +203,8 @@ mod tests {
 
     #[test]
     fn test_ntfy_config_with_new_fields() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        clear_env();
         let dir = tempdir().unwrap();
         let config_path = dir.path().join("config.toml");
         let mut file = File::create(&config_path).unwrap();
@@ -213,6 +235,8 @@ mod tests {
 
     #[test]
     fn test_ntfy_config_default_auto_rescan_delay() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        clear_env();
         let dir = tempdir().unwrap();
         let config_path = dir.path().join("config.toml");
         let mut file = File::create(&config_path).unwrap();

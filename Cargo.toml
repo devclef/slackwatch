@@ -5,14 +5,14 @@ edition = "2021"
 
 
 [dependencies]
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.143"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 dotenvy = { version = "0.15.7"}
-anyhow = { version = "1.0.99", features = ["std"] }
+anyhow = { version = "1.0.102", features = ["std"] }
 env_logger = { version = "0.11.8" }
-tokio = { version = "1.47.1", features = ["full"] }
-warp = { version = "0.4.2", features = ["server"] }
-log = { version = "0.4.27"}
+tokio = { version = "1.52.3", features = ["full"] }
+warp = { version = "0.4.3", features = ["server"] }
+log = { version = "0.4.30"}
 k8s-openapi = { version = "0.25.0", features = ["v1_30"] }
 kube = { version = "1.1.0", features = ["runtime"] }
 kube-runtime = { version = "1.1.0" }
@@ -24,11 +24,11 @@ reqwest = { version = "0.12.23", features = ["json"] }
 oci-distribution = { version = "0.11.0" }
 regex = { version = "1.11.2" }
 semver = { version = "1.0.26" }
-chrono = { version = "0.4.41" }
+chrono = { version = "0.4.44" }
 url = { version = "2.5.7" }
 ntfy = { version = "0.7.0", features = ["blocking"] }
-config = { version = "0.15.14" }
-serde_derive = { version = "1.0.219" }
+config = { version = "0.15.23" }
+serde_derive = { version = "1.0.228" }
 cron = { version = "0.15.0" }
 git2 = { version = "0.20.4" }
 serde_yaml_ng = "0.10.0"
