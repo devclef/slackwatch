@@ -1,6 +1,58 @@
 use oci_distribution::client::{Client, ClientConfig};
+use oci_distribution::errors::{OciDistributionError, OciErrorCode};
 use oci_distribution::secrets::RegistryAuth;
 use oci_distribution::Reference;
+
+fn is_rate_limited(err: &OciDistributionError) -> bool {
+    match err {
+        OciDistributionError::RegistryError { envelope, .. } => envelope
+            .errors
+            .iter()
+            .any(|e| e.code == OciErrorCode::Toomanyrequests),
+        OciDistributionError::ServerError { code, .. } => *code == 429,
+        _ => false,
+    }
+}
+
+async fn fetch_tags_page(
+    client: &Client,
+    reference: &Reference,
+    auth: &RegistryAuth,
+    max_tags: Option<usize>,
+    last_tag: Option<&str>,
+) -> Result<Vec<String>, OciDistributionError> {
+    const MAX_RETRIES: usize = 5;
+    let mut base_delay: std::time::Duration = std::time::Duration::from_secs(2);
+
+    for attempt in 0..MAX_RETRIES {
+        match client
+            .list_tags(reference, auth, max_tags, last_tag)
+            .await
+        {
+            Ok(tags) => return Ok(tags.tags),
+            Err(e) => {
+                if !is_rate_limited(&e) {
+                    return Err(e);
+                }
+                if attempt < MAX_RETRIES - 1 {
+                    log::warn!(
+                        "Rate limited fetching tags for {}: {}. Retrying in {:?} (attempt {}/{})",
+                        reference.repository(),
+                        e,
+                        base_delay,
+                        attempt + 1,
+                        MAX_RETRIES,
+                    );
+                    tokio::time::sleep(base_delay).await;
+                    base_delay *= 2;
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+    unreachable!()
+}
 
 pub async fn get_tags_for_image(image: &str) -> Result<(Vec<String>, bool), Box<dyn std::error::Error>> {
      let reference = Reference::try_from(image)?;
@@ -24,17 +76,22 @@ pub async fn get_tags_for_image(image: &str) -> Result<(Vec<String>, bool), Box<
              break;
          }
          log::info!("Fetching tags with last tag: {:?}", last_tag);
-         let tags = client
-             .list_tags(&reference, &auth, max_tags, last_tag.as_deref())
-             .await?;
+         let tags = fetch_tags_page(
+             &client,
+             &reference,
+             &auth,
+             max_tags,
+             last_tag.as_deref(),
+         )
+         .await?;
 
-         log::info!("Available tags for {}: {:?}", reference, tags.tags);
-         log::info!("Number of tags: {}", tags.tags.len());
+         log::info!("Available tags for {}: {:?}", reference, tags);
+         log::info!("Number of tags: {}", tags.len());
 
-         all_tags.extend(tags.tags.clone());
+         all_tags.extend(tags.clone());
 
-         if tags.tags.len() >= 100 {
-             if let Some(latest) = tags.tags.iter().max() {
+         if tags.len() >= 100 {
+             if let Some(latest) = tags.iter().max() {
                  last_tag = Some(latest.clone());
                  log::info!("Got 1000 results, continuing with last tag: {}", latest);
              } else {
