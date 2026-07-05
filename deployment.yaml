@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: firefly-iii
+  name: firefly-iii
+spec:
+  selector:
+    matchLabels:
+      app: firefly-iii
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        diun.enable: 'true'
+        diun.include_tags: version.*
+        diun.max_tags: '5'
+        diun.watch_repo: 'true'
+        slackwatch.directory: firefly
+        slackwatch.enable: 'true'
+        slackwatch.include: ^version
+        slackwatch.repo: fleet-home-gitops
+        firefly.devclef.se/nginx-log-format: json-v1
+      labels:
+        app: firefly-iii
+        tier: frontend
+    spec:
+      containers:
+      - env:
+        - name: APP_ENV
+          value: local
+        - name: VANITY_URL
+          value: http://firefly-iii.firefly:8080
+        - name: APP_KEY
+          valueFrom:
+            secretKeyRef:
+              key: app_key
+              name: firefly-iii-secrets
+        - name: DB_HOST
+          value: firefly-iii-mysql
+        - name: DB_CONNECTION
+          value: mysql
+        - name: DB_DATABASE
+          value: fireflyiii
+        - name: DB_USERNAME
+          value: root
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: db_password
+              name: firefly-iii-secrets
+        - name: TRUSTED_PROXIES
+          value: '**'
+        - name: NGINX_ACCESS_LOG
+          value: /dev/null
+        - name: PHP_MEMORY_LIMIT
+          value: 2048M
+#        - name: APP_LOG_LEVEL
+#          value: debug
+        image: fireflyiii/core:version-6.6.2
+        imagePullPolicy: Always
+        name: firefly-iii
+        ports:
+        - containerPort: 8080
+          name: firefly-iii
+        resources:
+          requests:
+            cpu: 6000m
+            memory: 6Gi
+          limits:
+            cpu: 6000m
+            memory: 6Gi
+        volumeMounts:
+        - mountPath: /etc/nginx/conf.d/log-duration.conf
+          name: firefly-iii-nginx-log-duration
+          subPath: log-duration.conf
+        - mountPath: /var/www/html/storage/upload
+          name: firefly-iii-upload
+      nodeSelector:
+        workload: generic
+      volumes:
+      - name: firefly-iii-nginx-log-duration
+        configMap:
+          defaultMode: 0444
+          name: firefly-iii-nginx-log-duration
+      - name: firefly-iii-upload
+        persistentVolumeClaim:
+          claimName: firefly-iii-upload-claim
