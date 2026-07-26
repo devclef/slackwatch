@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 export const RefreshAll: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isComplete, setIsComplete] = useState(false);
+  const [_isComplete, setIsComplete] = useState(false);
 
   useEffect(() => {
     const refreshAllWorkloads = async () => {
