@@ -124,8 +124,8 @@ fn edit_files(local_path: &Path, workload: &Workload) {
     let image = workload.image.clone();
     let base_image = image.split(":").collect::<Vec<&str>>()[0];
     let new_image = format!("{}:{}", base_image, workload.latest_version);
-    log::info!("Base image: {}", &base_image);
-    log::info!("New image: {}", &new_image);
+    log::info!("Base image: {base_image}");
+    log::info!("New image: {new_image}");
     for entry in WalkDir::new(search_path).into_iter().filter_map(|e| e.ok()) {
         log::info!("Entry: {:?}", entry.path());
         if entry.path().extension().unwrap_or_default() == "yaml" {
@@ -148,7 +148,7 @@ fn edit_files(local_path: &Path, workload: &Workload) {
                         }
                     }
                 }
-                log::info!("New StatefulSet: {:?}", &mut statefulset);
+                log::info!("New StatefulSet: {statefulset:?}");
                 if image_updated {
                     log::info!("Updating image in file: {:?}", entry.path());
                     let mut file = OpenOptions::new()
@@ -163,7 +163,7 @@ fn edit_files(local_path: &Path, workload: &Workload) {
             let deployment_result: Result<Deployment, _> = parse_k8s_yaml(&contents);
             match deployment_result {
                 Ok(mut deployment) => {
-                    log::info!("Deployment: {:?}", &deployment);
+                    log::info!("Deployment: {deployment:?}");
                     if let Some(spec) = deployment.spec.as_mut() {
                         if let Some(template_spec) = spec.template.spec.as_mut() {
                             for container in &mut template_spec.containers {

@@ -224,7 +224,7 @@ pub async fn parse_tags(workload: &Workload) -> Result<Workload, String> {
             println!("Tag {} is not a valid SemVer", tag);
             println!(
                 "Tag {} is not a valid SemVer - stripped",
-                &strip_tag_lettings(&tag)
+                strip_tag_lettings(&tag)
             );
         }
     }
