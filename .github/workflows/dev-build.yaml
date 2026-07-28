@@ -12,6 +12,7 @@ on:
       - '.github/workflows/dev-build.yaml'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'frontend/**'
 
 concurrency:
   group: "slackwatch"

@@ -11,6 +11,7 @@ on:
       - 'assets/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'frontend/**'
       - '.github/workflows/slackwatch.yml'
 
 concurrency:
