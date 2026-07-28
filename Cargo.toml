@@ -30,7 +30,7 @@ ntfy = { version = "0.7.0", features = ["blocking"] }
 config = { version = "0.15.23" }
 serde_derive = { version = "1.0.228" }
 cron = { version = "0.15.0" }
-git2 = { version = "0.21.0" }
+git2 = { version = "0.21.0", features = ["https", "vendored-openssl"] }
 serde_yaml_ng = "0.10.0"
 walkdir = { version = "2.5.0" }
 
