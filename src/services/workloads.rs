@@ -147,16 +147,17 @@ pub async fn test_call() {
 /// Parse a Docker tag as a version.
 ///
 /// Docker tags are not required to be strict SemVer and some registries
-/// publish short tags such as `12` or `12.1` (Jellyfin), which
+/// publish short `major.minor` tags such as `12.1` (Jellyfin), which
 /// `semver::Version::parse` rejects. An optional leading `v` is ignored
 /// and the leading `major[.minor][.patch]` is normalized to a full
 /// `major.minor.patch` (missing components default to zero), so `12.1`
 /// compares as `12.1.0`. To keep arbitrary build tags out of the
-/// comparison, tags must start with a digit and short (one- or
-/// two-component) tags must be purely numeric; pre-release/build
-/// metadata is only accepted on full three-component tags
-/// (`12.1.0-beta`). Anything else (`unstable`, `sha-e959062`,
-/// `42-bound-74a3ef0`) returns `None`.
+/// comparison, tags must start with a digit and have at least two
+/// components (bare numbers such as `9443289` are build/PR numbers, not
+/// versions), and short `major.minor` tags must be purely numeric;
+/// pre-release/build metadata is only accepted on full
+/// `major.minor.patch` tags (`12.1.0-beta`). Anything else (`unstable`,
+/// `sha-e959062`, `42-bound-74a3ef0`, `9443289`) returns `None`.
 fn parse_version_loose(tag: &str) -> Option<Version> {
     let trimmed = tag
         .strip_prefix('v')
@@ -175,7 +176,7 @@ fn parse_version_loose(tag: &str) -> Option<Version> {
     let (core, suffix) = trimmed.split_at(core_end);
 
     let components: Vec<&str> = core.split('.').filter(|c| !c.is_empty()).collect();
-    if components.is_empty()
+    if components.len() < 2
         || components.len() > 3
         || components
             .iter()
@@ -329,8 +330,13 @@ mod tests {
     }
 
     #[test]
-    fn parses_single_component_versions() {
-        assert_eq!(parse("12").unwrap(), Version::new(12, 0, 0));
+    fn rejects_single_component_numbers() {
+        // Bare numbers are build/PR numbers, not versions
+        // (frigate tags 9443289, grafana tags 9799770991).
+        assert!(parse("12").is_none());
+        assert!(parse("9443289").is_none());
+        assert!(parse("9799770991").is_none());
+        assert!(parse("2024").is_none());
     }
 
     #[test]
@@ -388,6 +394,30 @@ mod tests {
             "unstable".to_string(),
         ];
         assert_eq!(find_latest_update("12.0", &tags).as_deref(), Some("12.2"));
+    }
+
+    #[test]
+    fn ignores_numeric_build_tags() {
+        // Reported bug: numeric build/PR tags must not beat real versions.
+        let frigate = vec![
+            "0.18.0".to_string(),
+            "0.18.1".to_string(),
+            "9443289".to_string(),
+        ];
+        assert_eq!(
+            find_latest_update("0.18.0", &frigate).as_deref(),
+            Some("0.18.1")
+        );
+
+        let grafana = vec![
+            "13.2.3".to_string(),
+            "13.2.4".to_string(),
+            "9799770991".to_string(),
+        ];
+        assert_eq!(
+            find_latest_update("13.2.3", &grafana).as_deref(),
+            Some("13.2.4")
+        );
     }
 
     #[test]
