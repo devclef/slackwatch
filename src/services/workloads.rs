@@ -144,8 +144,77 @@ pub async fn test_call() {
     }
 }
 
-fn strip_tag_lettings(tag: &str) -> String {
-    tag.chars().skip_while(|c| !c.is_ascii_digit()).collect()
+/// Parse a Docker tag as a version.
+///
+/// Docker tags are not required to be strict SemVer and some registries
+/// publish short tags such as `12` or `12.1` (Jellyfin), which
+/// `semver::Version::parse` rejects. The leading `major[.minor][.patch]`
+/// is normalized to a full `major.minor.patch` (missing components
+/// default to zero), so `12.1` compares as `12.1.0`. Non-digit prefixes
+/// (`v12.1`) are ignored and pre-release/build metadata attached to the
+/// last component is preserved (`12.1-beta` -> `12.1.0-beta`). Tags with
+/// no numeric component (`unstable`, `latest`) return `None`.
+fn parse_version_loose(tag: &str) -> Option<Version> {
+    let stripped: String = tag.chars().skip_while(|c| !c.is_ascii_digit()).collect();
+
+    // Split the leading numeric core (digits and dots) from any suffix.
+    let core_end = stripped
+        .char_indices()
+        .find(|(_, c)| !c.is_ascii_digit() && *c != '.')
+        .map(|(i, _)| i)
+        .unwrap_or(stripped.len());
+    let (core, suffix) = stripped.split_at(core_end);
+
+    let components: Vec<&str> = core.split('.').filter(|c| !c.is_empty()).collect();
+    if components.is_empty()
+        || components.len() > 3
+        || components
+            .iter()
+            .any(|c| !c.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return None;
+    }
+
+    let mut normalized = String::new();
+    for (i, component) in components.iter().enumerate() {
+        if i > 0 {
+            normalized.push('.');
+        }
+        normalized.push_str(component);
+    }
+    while normalized.split('.').count() < 3 {
+        normalized.push_str(".0");
+    }
+
+    Version::parse(&format!("{normalized}{suffix}")).ok()
+}
+
+/// Returns the highest-version tag that is strictly newer than
+/// `current_version`. Tags that cannot be parsed as a version are
+/// skipped.
+fn find_latest_update(current_version: &str, tags: &[String]) -> Option<String> {
+    let current = parse_version_loose(current_version).unwrap_or(Version::new(0, 0, 0));
+    let mut latest: Option<Version> = None;
+    let mut latest_tag: Option<String> = None;
+
+    for tag in tags {
+        let Some(tag_version) = parse_version_loose(tag) else {
+            log::debug!("Skipping tag {}: not a valid SemVer", tag);
+            continue;
+        };
+        if tag_version > current && latest.as_ref().is_none_or(|l| tag_version > *l) {
+            match &latest_tag {
+                Some(prev) => {
+                    log::info!("Tag {} is newer than current latest_version {}", tag, prev)
+                }
+                None => log::info!("latest_version is empty - setting to tag {}", tag),
+            }
+            latest = Some(tag_version);
+            latest_tag = Some(tag.clone());
+        }
+    }
+
+    latest_tag
 }
 
 pub async fn parse_tags(workload: &Workload) -> Result<Workload, String> {
@@ -199,39 +268,14 @@ pub async fn parse_tags(workload: &Workload) -> Result<Workload, String> {
 
         log::info!("Filtered tags: {:?}", tags);
     }
-    let current_version = Version::parse(&strip_tag_lettings(&workload.current_version))
-        .unwrap_or_else(|_| Version::new(0, 0, 0));
-
     // Perform SemVer comparison with each tag:
-    let mut latest_version = String::new();
-    let mut update_available = UpdateStatus::NotAvailable;
-    for tag in tags {
-        if let Ok(tag_version) = Version::parse(&strip_tag_lettings(&tag)) {
-            if tag_version > current_version {
-                // tag_version is greater than current_version
-                // Do something with this tag
-                if latest_version.is_empty() {
-                    log::info!("latest_version is empty - setting to tag {}", tag);
-                    latest_version = tag.clone();
-                } else if tag_version > Version::parse(&strip_tag_lettings(&latest_version)).unwrap() {
-                    log::info!("Tag {} is newer than {} current latest_version updating", tag, latest_version);
-                    latest_version = tag.clone();
-                }
-
-            }
-        } else {
-            // Handle the case where the tag is not a valid SemVer format
-            println!("Tag {} is not a valid SemVer", tag);
-            println!(
-                "Tag {} is not a valid SemVer - stripped",
-                strip_tag_lettings(&tag)
-            );
-        }
-    }
-    if !latest_version.is_empty() {
+    let latest_version = find_latest_update(&workload.current_version, &tags).unwrap_or_default();
+    let update_available = if latest_version.is_empty() {
+        UpdateStatus::NotAvailable
+    } else {
         log::info!("Latest version for {}: {}", workload.image, latest_version);
-        update_available = UpdateStatus::Available;
-    }
+        UpdateStatus::Available
+    };
 Ok(Workload {
          name: workload.name.clone(),
          exclude_pattern: workload.exclude_pattern.clone(),
@@ -248,3 +292,99 @@ Ok(Workload {
          error: None,
      })
  }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(tag: &str) -> Option<Version> {
+        parse_version_loose(tag)
+    }
+
+    #[test]
+    fn parses_full_semver() {
+        assert_eq!(parse("12.1.0").unwrap(), Version::new(12, 1, 0));
+    }
+
+    #[test]
+    fn parses_two_component_versions() {
+        // Jellyfin publishes major.minor tags such as 12.1 / 12.2.
+        assert_eq!(parse("12.1").unwrap(), Version::new(12, 1, 0));
+        assert_eq!(parse("12.2").unwrap(), Version::new(12, 2, 0));
+    }
+
+    #[test]
+    fn parses_single_component_versions() {
+        assert_eq!(parse("12").unwrap(), Version::new(12, 0, 0));
+    }
+
+    #[test]
+    fn strips_non_digit_prefix() {
+        assert_eq!(parse("v12.1").unwrap(), Version::new(12, 1, 0));
+    }
+
+    #[test]
+    fn preserves_prerelease_and_build_metadata() {
+        // Pre-release suffix is kept and sorts before the release.
+        let beta = parse("12.1-beta").unwrap();
+        assert_eq!(beta.pre, semver::Prerelease::new("beta").unwrap());
+        assert!(beta < Version::new(12, 1, 0));
+
+        // Build metadata is kept but ignored in version ordering.
+        let v = parse("12.1.2+build5").unwrap();
+        assert!(v > Version::new(12, 1, 1));
+        assert!(v < Version::new(12, 1, 3));
+    }
+
+    #[test]
+    fn rejects_non_numeric_tags() {
+        assert!(parse("unstable").is_none());
+        assert!(parse("latest").is_none());
+        assert!(parse("").is_none());
+        assert!(parse("v").is_none());
+    }
+
+    #[test]
+    fn rejects_extra_components() {
+        assert!(parse("12.1.2.3").is_none());
+    }
+
+    #[test]
+    fn finds_latest_two_component_update() {
+        // The reported bug: Jellyfin running 12.0 with 12.1/12.2 released.
+        let tags = vec![
+            "12.0".to_string(),
+            "12.1".to_string(),
+            "12.2".to_string(),
+            "unstable".to_string(),
+        ];
+        assert_eq!(find_latest_update("12.0", &tags).as_deref(), Some("12.2"));
+    }
+
+    #[test]
+    fn no_update_when_current_is_latest() {
+        let tags = vec!["12.1".to_string(), "12.2".to_string()];
+        assert_eq!(find_latest_update("12.2", &tags), None);
+    }
+
+    #[test]
+    fn unparseable_current_version_treated_as_zero() {
+        let tags = vec!["12.1".to_string()];
+        assert_eq!(
+            find_latest_update("unstable", &tags).as_deref(),
+            Some("12.1")
+        );
+    }
+
+    #[test]
+    fn unparseable_tags_are_skipped() {
+        let tags = vec!["unstable".to_string(), "latest".to_string()];
+        assert_eq!(find_latest_update("12.0", &tags), None);
+    }
+
+    #[test]
+    fn compares_versions_numerically_not_lexicographically() {
+        let tags = vec!["9.0".to_string(), "10.0".to_string()];
+        assert_eq!(find_latest_update("1.0.0", &tags).as_deref(), Some("10.0"));
+    }
+}
