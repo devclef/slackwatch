@@ -148,22 +148,31 @@ pub async fn test_call() {
 ///
 /// Docker tags are not required to be strict SemVer and some registries
 /// publish short tags such as `12` or `12.1` (Jellyfin), which
-/// `semver::Version::parse` rejects. The leading `major[.minor][.patch]`
-/// is normalized to a full `major.minor.patch` (missing components
-/// default to zero), so `12.1` compares as `12.1.0`. Non-digit prefixes
-/// (`v12.1`) are ignored and pre-release/build metadata attached to the
-/// last component is preserved (`12.1-beta` -> `12.1.0-beta`). Tags with
-/// no numeric component (`unstable`, `latest`) return `None`.
+/// `semver::Version::parse` rejects. An optional leading `v` is ignored
+/// and the leading `major[.minor][.patch]` is normalized to a full
+/// `major.minor.patch` (missing components default to zero), so `12.1`
+/// compares as `12.1.0`. To keep arbitrary build tags out of the
+/// comparison, tags must start with a digit and short (one- or
+/// two-component) tags must be purely numeric; pre-release/build
+/// metadata is only accepted on full three-component tags
+/// (`12.1.0-beta`). Anything else (`unstable`, `sha-e959062`,
+/// `42-bound-74a3ef0`) returns `None`.
 fn parse_version_loose(tag: &str) -> Option<Version> {
-    let stripped: String = tag.chars().skip_while(|c| !c.is_ascii_digit()).collect();
+    let trimmed = tag
+        .strip_prefix('v')
+        .or_else(|| tag.strip_prefix('V'))
+        .unwrap_or(tag);
+    if !trimmed.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        return None;
+    }
 
     // Split the leading numeric core (digits and dots) from any suffix.
-    let core_end = stripped
+    let core_end = trimmed
         .char_indices()
         .find(|(_, c)| !c.is_ascii_digit() && *c != '.')
         .map(|(i, _)| i)
-        .unwrap_or(stripped.len());
-    let (core, suffix) = stripped.split_at(core_end);
+        .unwrap_or(trimmed.len());
+    let (core, suffix) = trimmed.split_at(core_end);
 
     let components: Vec<&str> = core.split('.').filter(|c| !c.is_empty()).collect();
     if components.is_empty()
@@ -172,6 +181,12 @@ fn parse_version_loose(tag: &str) -> Option<Version> {
             .iter()
             .any(|c| !c.bytes().all(|b| b.is_ascii_digit()))
     {
+        return None;
+    }
+
+    // Short tags must be purely numeric; suffixes (pre-release/build)
+    // are only meaningful on full major.minor.patch versions.
+    if components.len() < 3 && !suffix.is_empty() {
         return None;
     }
 
@@ -319,14 +334,15 @@ mod tests {
     }
 
     #[test]
-    fn strips_non_digit_prefix() {
+    fn strips_leading_v_prefix() {
         assert_eq!(parse("v12.1").unwrap(), Version::new(12, 1, 0));
+        assert_eq!(parse("v3.5.0").unwrap(), Version::new(3, 5, 0));
     }
 
     #[test]
-    fn preserves_prerelease_and_build_metadata() {
+    fn preserves_prerelease_and_build_metadata_on_full_versions() {
         // Pre-release suffix is kept and sorts before the release.
-        let beta = parse("12.1-beta").unwrap();
+        let beta = parse("12.1.0-beta").unwrap();
         assert_eq!(beta.pre, semver::Prerelease::new("beta").unwrap());
         assert!(beta < Version::new(12, 1, 0));
 
@@ -337,11 +353,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_numeric_tags() {
+    fn rejects_short_tags_with_suffixes() {
+        // `42-bound-74a3ef0` (Loki) must not compare as 42.0.0.
+        assert!(parse("42-bound-74a3ef0").is_none());
+        assert!(parse("12.1-beta").is_none());
+    }
+
+    #[test]
+    fn rejects_non_version_tags() {
+        // `sha-e959062` (Seerr) must not compare as 959062.0.0.
+        assert!(parse("sha-e959062").is_none());
         assert!(parse("unstable").is_none());
         assert!(parse("latest").is_none());
         assert!(parse("").is_none());
         assert!(parse("v").is_none());
+        assert!(parse("release-1.2.3").is_none());
     }
 
     #[test]
@@ -351,11 +377,14 @@ mod tests {
 
     #[test]
     fn finds_latest_two_component_update() {
-        // The reported bug: Jellyfin running 12.0 with 12.1/12.2 released.
+        // The reported bug: Jellyfin running 12.0 with 12.1/12.2
+        // released, mixed with non-SemVer build tags.
         let tags = vec![
             "12.0".to_string(),
             "12.1".to_string(),
             "12.2".to_string(),
+            "sha-e959062".to_string(),
+            "42-bound-74a3ef0".to_string(),
             "unstable".to_string(),
         ];
         assert_eq!(find_latest_update("12.0", &tags).as_deref(), Some("12.2"));
