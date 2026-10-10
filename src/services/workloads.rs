@@ -16,9 +16,54 @@ pub async fn update_single_workload(current_workload: Workload) -> Result<(), St
     .map_err(|e| e.to_string())?;
     log::info!("Found workload: {:?}", workload);
     let scan_id = get_latest_scan_id().unwrap_or(0) + 1;
-    if let Some(latest_tag) = find_latest_tag_for_image(&workload).await {
-        let result = parse_tags(&workload).await;
-        let workload = match result {
+    // Fetch tags once: parse_tags does the full fetch and comparison.
+    // (Previously the tags were fetched a second time here via
+    // find_latest_tag_for_image, which doubled registry rate-limit usage.)
+    let workload = match parse_tags(&workload).await {
+        Ok(w) => w,
+        Err(e) => {
+            log::error!("Scan error for workload {}: {}", workload.name, e);
+            Workload {
+                name: workload.name.clone(),
+                exclude_pattern: workload.exclude_pattern.clone(),
+                git_ops_repo: workload.git_ops_repo.clone(),
+                include_pattern: workload.include_pattern.clone(),
+                namespace: workload.namespace.clone(),
+                current_version: workload.current_version.clone(),
+                image: workload.image.clone(),
+                update_available: UpdateStatus::NotAvailable,
+                last_scanned: workload.last_scanned.clone(),
+                latest_version: String::new(),
+                git_directory: workload.git_directory.clone(),
+                scan_exhausted: "False".to_string(),
+                error: Some(e.to_string()),
+            }
+        }
+    };
+
+    if workload.update_available.to_string() == "Available" {
+        let workloads: Vec<Workload> = vec![workload.clone()];
+        send_batch_notification(&workloads)
+            .await
+            .unwrap_or_else(|e| log::error!("Error sending notification: {}", e));
+    }
+    std::thread::spawn(move || database::client::insert_workload(&workload, scan_id))
+        .join()
+        .map_err(|_| "Thread error".to_string())?
+        .expect("TODO: panic message");
+    Ok(())
+}
+
+pub async fn fetch_and_update_all_watched() -> Result<(), String> {
+    let workloads = find_enabled_workloads().await.map_err(|e| e.to_string())?;
+    log::info!("Found {} workloads", workloads.len());
+
+    let scan_id = get_latest_scan_id().unwrap_or(0) + 1;
+    let mut updates_available: Vec<Workload> = Vec::new();
+
+    for workload in workloads {
+        // Fetch tags once: parse_tags does the full fetch and comparison.
+        let workload = match parse_tags(&workload).await {
             Ok(w) => w,
             Err(e) => {
                 log::error!("Scan error for workload {}: {}", workload.name, e);
@@ -41,73 +86,13 @@ pub async fn update_single_workload(current_workload: Workload) -> Result<(), St
         };
 
         if workload.update_available.to_string() == "Available" {
-            let workloads: Vec<Workload> = vec![workload.clone()];
-            send_batch_notification(&workloads)
-                .await
-                .unwrap_or_else(|e| log::error!("Error sending notification: {}", e));
+            updates_available.push(workload.clone());
         }
+
         std::thread::spawn(move || database::client::insert_workload(&workload, scan_id))
             .join()
             .map_err(|_| "Thread error".to_string())?
             .expect("TODO: panic message");
-    } else {
-        log::info!("No tags found for image: {}", workload.image);
-        std::thread::spawn(move || database::client::insert_workload(&workload, scan_id))
-            .join()
-            .map_err(|_| "Thread error".to_string())?
-            .expect("TODO: panic message");
-    }
-    Ok(())
-}
-
-pub async fn fetch_and_update_all_watched() -> Result<(), String> {
-    let workloads = find_enabled_workloads().await.map_err(|e| e.to_string())?;
-    log::info!("Found {} workloads", workloads.len());
-
-    let scan_id = get_latest_scan_id().unwrap_or(0) + 1;
-    let mut updates_available: Vec<Workload> = Vec::new();
-
-    for workload in workloads {
-        if find_latest_tag_for_image(&workload).await.is_some() {
-            let result = parse_tags(&workload).await;
-            let workload = match result {
-                Ok(w) => w,
-                Err(e) => {
-                    log::error!("Scan error for workload {}: {}", workload.name, e);
-                    Workload {
-                        name: workload.name.clone(),
-                        exclude_pattern: workload.exclude_pattern.clone(),
-                        git_ops_repo: workload.git_ops_repo.clone(),
-                        include_pattern: workload.include_pattern.clone(),
-                        namespace: workload.namespace.clone(),
-                        current_version: workload.current_version.clone(),
-                        image: workload.image.clone(),
-                        update_available: UpdateStatus::NotAvailable,
-                        last_scanned: workload.last_scanned.clone(),
-                        latest_version: String::new(),
-                        git_directory: workload.git_directory.clone(),
-                        scan_exhausted: "False".to_string(),
-                        error: Some(e.to_string()),
-                    }
-                }
-            };
-
-            if workload.update_available.to_string() == "Available" {
-                updates_available.push(workload.clone());
-            }
-
-            std::thread::spawn(move || database::client::insert_workload(&workload, scan_id))
-                .join()
-                .map_err(|_| "Thread error".to_string())?
-                .expect("TODO: panic message");
-
-        } else {
-            log::info!("No tags found for image: {}", workload.image);
-            std::thread::spawn(move || database::client::insert_workload(&workload, scan_id))
-                .join()
-                .map_err(|_| "Thread error".to_string())?
-                .expect("TODO: panic message");
-        }
     }
 
     // Send batch notification if there are updates
@@ -119,20 +104,6 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
 
     Ok(())
 }
-
-pub async fn find_latest_tag_for_image(workload: &Workload) -> Option<String> {
-     match get_tags_for_image(&workload.image).await {
-         Ok((tags, _)) => {
-             let latest_tag = tags.first()?.clone();
-             log::info!("Latest tag for image {}: {}", workload.image, latest_tag);
-             Some(latest_tag)
-         },
-         Err(e) => {
-             log::error!("Error fetching tags for image {}: {}", workload.image, e);
-             None
-         },
-     }
- }
 
 
 pub async fn test_call() {
