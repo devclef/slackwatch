@@ -19,6 +19,31 @@ const FIRST_RETRY_DELAY: Duration = Duration::from_secs(2);
 /// quickly and move on to the next workload.
 const RETRY_BUDGET: Duration = Duration::from_secs(30);
 
+/// Translate opaque registry-client errors into actionable messages.
+///
+/// Some registries answer `tags/list` with `{"name":"…","tags":null}`
+/// (e.g. Docker Hub for private or empty repositories). The strict
+/// `TagResponse` deserialiser in oci-distribution rejects that with an
+/// opaque serde error, so map it to something a human can act on.
+fn describe_fetch_error(image: &str, err: &OciDistributionError) -> String {
+    match err {
+        OciDistributionError::JsonError(je)
+            if je.to_string().contains("invalid type: null, expected a sequence") =>
+        {
+            format!(
+                "registry returned a null tag list for {image} (repository is empty, private, or not anonymously accessible)"
+            )
+        }
+        OciDistributionError::UnauthorizedError { .. }
+        | OciDistributionError::AuthenticationFailure(_) => {
+            format!(
+                "registry requires authentication for {image} (anonymous access denied, e.g. Docker Hub now restricts anonymous pulls of popular repositories)"
+            )
+        }
+        other => other.to_string(),
+    }
+}
+
 fn is_rate_limited(err: &OciDistributionError) -> bool {
     match err {
         OciDistributionError::RegistryError { envelope, .. } => envelope
@@ -133,7 +158,8 @@ pub async fn get_tags_for_image(image: &str) -> Result<(Vec<String>, bool), Box<
              last_tag.as_deref(),
              retry_deadline,
          )
-         .await?;
+         .await
+         .map_err(|e| describe_fetch_error(image, &e))?;
 
          log::info!("Available tags for {}: {:?}", reference, tags);
          log::info!("Number of tags: {}", tags.len());
@@ -156,3 +182,45 @@ pub async fn get_tags_for_image(image: &str) -> Result<(Vec<String>, bool), Box<
 
      Ok((all_tags, exhausted))
  }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn null_tag_list_error_is_actionable() {
+        // Reproduce the exact serde error oci-distribution hits on
+        // {"name":"…","tags":null}.
+        #[derive(Debug, serde::Deserialize)]
+        struct Strict {
+            tags: Vec<String>,
+        }
+        let je: serde_json::error::Error =
+            serde_json::from_str::<Strict>(r#"{"tags":null}"#).unwrap_err();
+        let err = OciDistributionError::JsonError(je);
+        let msg = describe_fetch_error("myreg.io/foo/bar", &err);
+        assert!(
+            msg.contains("null tag list") && msg.contains("myreg.io/foo/bar"),
+            "unexpected message: {msg}"
+        );
+    }
+
+    #[test]
+    fn unauthorized_error_is_actionable() {
+        let err = OciDistributionError::UnauthorizedError {
+            url: "https://registry-1.docker.io/v2/foo/bar/tags/list".to_string(),
+        };
+        let msg = describe_fetch_error("foo/bar", &err);
+        assert!(msg.contains("requires authentication") && msg.contains("foo/bar"));
+    }
+
+    #[test]
+    fn other_errors_pass_through() {
+        let err = OciDistributionError::ServerError {
+            code: 500,
+            url: "https://reg/v2/foo/tags/list".to_string(),
+            message: "boom".to_string(),
+        };
+        assert_eq!(describe_fetch_error("foo", &err), err.to_string());
+    }
+}
