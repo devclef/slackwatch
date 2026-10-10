@@ -20,20 +20,8 @@ const FIRST_RETRY_DELAY: Duration = Duration::from_secs(2);
 const RETRY_BUDGET: Duration = Duration::from_secs(30);
 
 /// Translate opaque registry-client errors into actionable messages.
-///
-/// Some registries answer `tags/list` with `{"name":"…","tags":null}`
-/// (e.g. Docker Hub for private or empty repositories). The strict
-/// `TagResponse` deserialiser in oci-distribution rejects that with an
-/// opaque serde error, so map it to something a human can act on.
 fn describe_fetch_error(image: &str, err: &OciDistributionError) -> String {
     match err {
-        OciDistributionError::JsonError(je)
-            if je.to_string().contains("invalid type: null, expected a sequence") =>
-        {
-            format!(
-                "registry returned a null tag list for {image} (repository is empty, private, or not anonymously accessible)"
-            )
-        }
         OciDistributionError::UnauthorizedError { .. }
         | OciDistributionError::AuthenticationFailure(_) => {
             format!(
@@ -42,6 +30,20 @@ fn describe_fetch_error(image: &str, err: &OciDistributionError) -> String {
         }
         other => other.to_string(),
     }
+}
+
+/// Some registries (GHCR for sure) answer `tags/list` with
+/// `{"name":"…","tags":null}` — most notably when the `last` cursor points
+/// at or beyond the end of their internal tag ordering, and for empty or
+/// not-anonymously-visible repositories. The strict `TagResponse`
+/// deserialiser in oci-distribution rejects that with an opaque serde
+/// error, so detect it explicitly instead of surfacing it.
+fn is_null_tags_error(err: &OciDistributionError) -> bool {
+    matches!(
+        err,
+        OciDistributionError::JsonError(je)
+            if je.to_string().contains("invalid type: null, expected a sequence")
+    )
 }
 
 fn is_rate_limited(err: &OciDistributionError) -> bool {
@@ -135,7 +137,12 @@ pub async fn get_tags_for_image(image: &str) -> Result<(Vec<String>, bool), Box<
      let retry_deadline = Instant::now() + RETRY_BUDGET;
 
      let mut all_tags = Vec::new();
-     let mut last_tag = reference.tag().map(|s| s.to_string());
+     // Start from the beginning of the registry's own tag ordering, not from
+     // the workload's current tag: GHCR's ordering is not lexicographic and
+     // it answers a `last` cursor at the end of the list with `tags: null`,
+     // so starting at the current tag failed every scan of a workload
+     // running the newest tag.
+     let mut last_tag: Option<String> = None;
      let mut attempt_count = 0;
      // GHCR caps each page at 1000 tags regardless of n, so the page budget
      // must be sized for that (30 pages ~= 30k tags on both registries).
@@ -150,7 +157,7 @@ pub async fn get_tags_for_image(image: &str) -> Result<(Vec<String>, bool), Box<
              break;
          }
          log::info!("Fetching tags with last tag: {:?}", last_tag);
-         let tags = fetch_tags_page(
+         let tags = match fetch_tags_page(
              &client,
              &reference,
              &auth,
@@ -159,7 +166,24 @@ pub async fn get_tags_for_image(image: &str) -> Result<(Vec<String>, bool), Box<
              retry_deadline,
          )
          .await
-         .map_err(|e| describe_fetch_error(image, &e))?;
+         {
+             Ok(tags) => tags,
+             Err(e) if is_null_tags_error(&e) => {
+                 if all_tags.is_empty() {
+                     log::warn!(
+                         "Registry returned a null tag list for {} (repository is empty or not anonymously accessible)",
+                         reference
+                     );
+                 } else {
+                     log::info!(
+                         "Registry returned a null tag list for {} — end of tag list",
+                         reference
+                     );
+                 }
+                 break;
+             }
+             Err(e) => return Err(describe_fetch_error(image, &e).into()),
+         };
 
          log::info!("Available tags for {}: {:?}", reference, tags);
          log::info!("Number of tags: {}", tags.len());
@@ -167,9 +191,9 @@ pub async fn get_tags_for_image(image: &str) -> Result<(Vec<String>, bool), Box<
          all_tags.extend(tags.clone());
 
          if tags.len() >= 100 {
-             if let Some(latest) = tags.iter().max() {
-                 last_tag = Some(latest.clone());
-                 log::info!("Got a full page of results, continuing with last tag: {}", latest);
+             if let Some(last) = tags.last() {
+                 last_tag = Some(last.clone());
+                 log::info!("Got a full page of results, continuing with last tag: {}", last);
              } else {
                  break;
              }
@@ -188,9 +212,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn null_tag_list_error_is_actionable() {
+    fn null_tag_list_error_is_detected() {
         // Reproduce the exact serde error oci-distribution hits on
-        // {"name":"…","tags":null}.
+        // {"name":"…","tags":null} (GHCR's end-of-cursor / empty response).
         #[derive(Debug, serde::Deserialize)]
         struct Strict {
             tags: Vec<String>,
@@ -198,11 +222,14 @@ mod tests {
         let je: serde_json::error::Error =
             serde_json::from_str::<Strict>(r#"{"tags":null}"#).unwrap_err();
         let err = OciDistributionError::JsonError(je);
-        let msg = describe_fetch_error("myreg.io/foo/bar", &err);
-        assert!(
-            msg.contains("null tag list") && msg.contains("myreg.io/foo/bar"),
-            "unexpected message: {msg}"
-        );
+        assert!(is_null_tags_error(&err));
+        // Other JSON-ish errors are not misdetected.
+        let other = OciDistributionError::ServerError {
+            code: 500,
+            url: "https://reg/v2/foo/tags/list".to_string(),
+            message: "boom".to_string(),
+        };
+        assert!(!is_null_tags_error(&other));
     }
 
     #[test]
