@@ -119,21 +119,34 @@ pub async fn test_call() {
 ///
 /// Docker tags are not required to be strict SemVer and some registries
 /// publish short `major.minor` tags such as `12.1` (Jellyfin), which
-/// `semver::Version::parse` rejects. An optional leading `v` is ignored
-/// and the leading `major[.minor][.patch]` is normalized to a full
-/// `major.minor.patch` (missing components default to zero), so `12.1`
-/// compares as `12.1.0`. To keep arbitrary build tags out of the
-/// comparison, tags must start with a digit and have at least two
-/// components (bare numbers such as `9443289` are build/PR numbers, not
-/// versions), and short `major.minor` tags must be purely numeric;
-/// pre-release/build metadata is only accepted on full
-/// `major.minor.patch` tags (`12.1.0-beta`). Anything else (`unstable`,
-/// `sha-e959062`, `42-bound-74a3ef0`, `9443289`) returns `None`.
+/// `semver::Version::parse` rejects. An optional leading `version-`
+/// (Firefly III publishes `version-6.7.8`) or a single `v`/`V` — only
+/// when a digit follows, so `version-…` is not mangled by the `v` strip
+/// — is removed, and the leading `major[.minor][.patch]` is normalized
+/// to a full `major.minor.patch` (missing components default to zero),
+/// so `12.1` compares as `12.1.0`. To keep arbitrary build tags out of
+/// the comparison, tags must start with a digit (after stripping the
+/// prefix) and have at least two components (bare numbers such as
+/// `9443289` are build/PR numbers, not versions), and short `major.minor`
+/// tags must be purely numeric; pre-release/build metadata is only
+/// accepted on full `major.minor.patch` tags (`12.1.0-beta`). Anything
+/// else (`unstable`, `sha-e959062`, `42-bound-74a3ef0`, `9443289`,
+/// `video-player-1.2.3`) returns `None`.
 fn parse_version_loose(tag: &str) -> Option<Version> {
-    let trimmed = tag
+    // Strip a leading version marker: a full `version-` prefix (Firefly
+    // III), then a single `v`/`V` — but only when a digit follows, so
+    // e.g. `version-6.7.8` is not mangled into `ersion-6.7.8` by the
+    // `v` strip.
+    let trimmed = tag.strip_prefix("version-").unwrap_or(tag);
+    let trimmed = trimmed
         .strip_prefix('v')
-        .or_else(|| tag.strip_prefix('V'))
-        .unwrap_or(tag);
+        .filter(|t| t.starts_with(|c: char| c.is_ascii_digit()))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('V')
+                .filter(|t| t.starts_with(|c: char| c.is_ascii_digit()))
+        })
+        .unwrap_or(trimmed);
     if !trimmed.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         return None;
     }
@@ -314,6 +327,31 @@ mod tests {
     fn strips_leading_v_prefix() {
         assert_eq!(parse("v12.1").unwrap(), Version::new(12, 1, 0));
         assert_eq!(parse("v3.5.0").unwrap(), Version::new(3, 5, 0));
+    }
+
+    #[test]
+    fn strips_version_prefix() {
+        // Firefly III publishes version-6.7.8 style tags.
+        assert_eq!(parse("version-6.7.8").unwrap(), Version::new(6, 7, 8));
+        assert_eq!(parse("version-6.7").unwrap(), Version::new(6, 7, 0));
+        let beta = parse("version-6.7.8-beta.1").unwrap();
+        assert_eq!(beta.pre, semver::Prerelease::new("beta.1").unwrap());
+        assert!(beta < Version::new(6, 7, 8));
+
+        // The `version-` strip must not swallow lookalikes, and single
+        // components are still rejected.
+        assert!(parse("versioning-1.2.3").is_none());
+        assert!(parse("version-6").is_none());
+        assert!(parse("video-player-1.2.3").is_none());
+    }
+
+    #[test]
+    fn finds_update_across_version_prefix_tags() {
+        let tags = vec!["version-6.7.7".to_string(), "version-6.7.8".to_string()];
+        assert_eq!(
+            find_latest_update("version-6.7.7", &tags).as_deref(),
+            Some("version-6.7.8")
+        );
     }
 
     #[test]
