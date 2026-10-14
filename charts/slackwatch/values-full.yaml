@@ -33,6 +33,8 @@ config:
     data_dir: "/app/slackwatch/data"
     #run at startup, otherwise blank page until first run. App is stateless at the moment.
     run_at_startup: false
+    #max tags/list pages fetched per image before a scan is marked exhausted (100 ~= 100k tags)
+    registry_max_pages: 100
 
   notifications:
     ntfy:

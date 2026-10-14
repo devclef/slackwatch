@@ -7,7 +7,7 @@ use crate::repocheck::get_tags_for_image;
 use regex::Regex;
 use semver::Version;
 
-pub async fn update_single_workload(current_workload: Workload) -> Result<(), String> {
+pub async fn update_single_workload(current_workload: Workload, max_pages: usize) -> Result<(), String> {
     let workload = find_specific_workload(
         &current_workload.name.clone(),
         &current_workload.namespace.clone(),
@@ -19,7 +19,7 @@ pub async fn update_single_workload(current_workload: Workload) -> Result<(), St
     // Fetch tags once: parse_tags does the full fetch and comparison.
     // (Previously the tags were fetched a second time here via
     // find_latest_tag_for_image, which doubled registry rate-limit usage.)
-    let workload = match parse_tags(&workload).await {
+    let workload = match parse_tags(&workload, max_pages).await {
         Ok(w) => w,
         Err(e) => {
             log::error!("Scan error for workload {}: {}", workload.name, e);
@@ -54,7 +54,7 @@ pub async fn update_single_workload(current_workload: Workload) -> Result<(), St
     Ok(())
 }
 
-pub async fn fetch_and_update_all_watched() -> Result<(), String> {
+pub async fn fetch_and_update_all_watched(max_pages: usize) -> Result<(), String> {
     let workloads = find_enabled_workloads().await.map_err(|e| e.to_string())?;
     log::info!("Found {} workloads", workloads.len());
 
@@ -63,7 +63,7 @@ pub async fn fetch_and_update_all_watched() -> Result<(), String> {
 
     for workload in workloads {
         // Fetch tags once: parse_tags does the full fetch and comparison.
-        let workload = match parse_tags(&workload).await {
+        let workload = match parse_tags(&workload, max_pages).await {
             Ok(w) => w,
             Err(e) => {
                 log::error!("Scan error for workload {}: {}", workload.name, e);
@@ -110,7 +110,7 @@ pub async fn test_call() {
     let workloads = find_enabled_workloads().await.unwrap();
     for workload in workloads.iter().take(1) {
         //let workload = workload.clone();
-        let workload = parse_tags(workload).await.unwrap();
+        let workload = parse_tags(workload, crate::config::DEFAULT_REGISTRY_MAX_PAGES).await.unwrap();
         log::info!("Workload: {:?}", workload)
     }
 }
@@ -217,8 +217,8 @@ fn find_latest_update(current_version: &str, tags: &[String]) -> Option<String> 
     latest_tag
 }
 
-pub async fn parse_tags(workload: &Workload) -> Result<Workload, String> {
-     let (mut tags, exhausted) = get_tags_for_image(&workload.image).await.map_err(|e| e.to_string())?;
+pub async fn parse_tags(workload: &Workload, max_pages: usize) -> Result<Workload, String> {
+     let (mut tags, exhausted) = get_tags_for_image(&workload.image, max_pages).await.map_err(|e| e.to_string())?;
      tags.sort();
 
     // Validate and compile include patterns, capturing errors

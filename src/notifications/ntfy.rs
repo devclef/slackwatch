@@ -207,7 +207,7 @@ pub fn parse_duration(s: &str) -> Option<Duration> {
     None
 }
 
-pub async fn schedule_rescan(workload: Workload, delay: &str) {
+pub async fn schedule_rescan(workload: Workload, delay: &str, max_pages: usize) {
     if let Some(duration) = parse_duration(delay) {
         let wl = workload.clone();
         log::info!("Scheduling re-scan for {} in {:?}", wl.name, duration);
@@ -215,7 +215,7 @@ pub async fn schedule_rescan(workload: Workload, delay: &str) {
             sleep(duration).await;
             let name = wl.name.clone();
             log::info!("Re-scanning workload {}", name);
-            if let Err(e) = crate::services::workloads::update_single_workload(wl).await {
+            if let Err(e) = crate::services::workloads::update_single_workload(wl, max_pages).await {
                 log::error!("Re-scan failed for workload {}: {}", name, e);
             }
         });

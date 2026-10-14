@@ -31,4 +31,6 @@ config:
     #default schedule is every 2 hours
     schedule: "0 0 */2 * *"
     data_dir: "/app/slackwatch/data"
+    #max tags/list pages fetched per image before a scan is marked exhausted (100 ~= 100k tags)
+    registry_max_pages: 100
 

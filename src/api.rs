@@ -4,7 +4,7 @@ use warp::http::Method;
 use serde_json::json;
 use std::collections::HashMap;
 use crate::models::Workload;
-use crate::config::Settings;
+use crate::config::{Settings, DEFAULT_REGISTRY_MAX_PAGES};
 use crate::services::workloads::{fetch_and_update_all_watched, update_single_workload};
 use crate::gitops::run_git_operations;
 use crate::services::scheduler::next_schedule_time;
@@ -108,8 +108,21 @@ async fn handle_get_workloads() -> Result<impl Reply, Rejection> {
     }
 }
 
+/// Load the per-image tag page budget from settings, falling back to
+/// the built-in default so a broken config file never blocks a scan.
+fn load_registry_max_pages() -> usize {
+    match Settings::new() {
+        Ok(settings) => settings.system.registry_max_pages,
+        Err(e) => {
+            log::warn!("Failed to load settings; using default registry_max_pages: {}", e);
+            DEFAULT_REGISTRY_MAX_PAGES
+        }
+    }
+}
+
 async fn handle_update_workload(workload: Workload) -> Result<impl Reply, Rejection> {
-    match update_single_workload(workload).await {
+    let max_pages = load_registry_max_pages();
+    match update_single_workload(workload, max_pages).await {
         Ok(_) => Ok(warp::reply::json(&json!({ "status": "success" }))),
         Err(e) => {
             log::error!("Failed to update workload: {}", e);
@@ -137,7 +150,8 @@ async fn handle_upgrade_workload(workload: Workload) -> Result<impl Reply, Rejec
 }
 
 async fn handle_refresh_all() -> Result<impl Reply, Rejection> {
-    match fetch_and_update_all_watched().await {
+    let max_pages = load_registry_max_pages();
+    match fetch_and_update_all_watched(max_pages).await {
         Ok(_) => Ok(warp::reply::json(&json!({ "status": "success" }))),
         Err(e) => {
             log::error!("Failed to refresh all workloads: {}", e);
@@ -222,7 +236,7 @@ async fn handle_ntfy_callback(
                             if let Ok(settings) = Settings::new() {
                                 if let Some(ref notifications) = settings.notifications {
                                     if let Some(ref ntfy) = notifications.ntfy {
-                                        schedule_rescan(wl.clone(), &ntfy.auto_rescan_delay).await;
+                                        schedule_rescan(wl.clone(), &ntfy.auto_rescan_delay, settings.system.registry_max_pages).await;
                                     }
                                 }
                             }

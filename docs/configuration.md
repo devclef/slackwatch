@@ -21,6 +21,7 @@ Slackwatch supports configuration via a TOML file. The default location is `~/.s
 [system]
 schedule = "0 0 9-22/2 * * *"
 data_dir = "/app/slackwatch/data"
+registry_max_pages = 100
 ```
 ---
 
@@ -35,6 +36,13 @@ description: The `schedule` is a cron expression that defines when slackwatch sh
 default: `~/.slackwatch/data`
 
 description: The `data_dir` is the directory where slackwatch stores its data. This includes the state of the last run, and any other data that slackwatch needs to persist.
+
+---
+
+#### registry_max_pages
+default: `100`
+
+description: The maximum number of `tags/list` pages to fetch per image before a scan is marked *Scan Exhausted*. GHCR caps each page at 1000 tags, so the default of 100 covers roughly 100,000 tags. Raise this for very heavily versioned images (e.g. `ghcr.io/immich-app/immich-server` has ~32k tags) if their tag list does not fit in the default budget. Overridable via `SLACKWATCH_SYSTEM.REGISTRY_MAX_PAGES`.
 
 ---
 

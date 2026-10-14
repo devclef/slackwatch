@@ -133,5 +133,5 @@ mdbook build
 - The frontend dev server (`npm run dev`) proxies `/api` requests to the backend on port 8080.
 - The backend serves the React SPA from `frontend/dist/` — production builds require `npm run build` first.
 - GitOps operations clone repos to `/tmp/repos/<name>`, edit YAML files matching Deployment/StatefulSet specs, then commit and push to `refs/heads/main`.
-- Image tag fetching uses OCI distribution protocol with pagination support (up to 20 attempts × 1500 tags).
+- Image tag fetching uses OCI distribution protocol with pagination support. The page budget is configurable via `system.registry_max_pages` (default 100 ≈ 100k tags at GHCR's 1000/page cap); when it runs out the scan is flagged *Scan Exhausted* but still reports the best update found in the collected tags.
 - The database stores full scan history (not just latest), enabling trend tracking across scans.

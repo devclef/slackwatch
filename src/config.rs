@@ -17,9 +17,15 @@ impl Default for System {
             schedule: default_schedule(),
             data_dir: default_data_dir(),
             run_at_startup: default_run_at_startup(),
+            registry_max_pages: DEFAULT_REGISTRY_MAX_PAGES,
         }
     }
 }
+
+/// Default cap on `tags/list` pages fetched per image. GHCR caps each page
+/// at 1000 tags, so the default covers ~100k tags — comfortably past the
+/// heaviest known repos (e.g. ghcr.io/immich-app/immich-server, ~32k tags).
+pub const DEFAULT_REGISTRY_MAX_PAGES: usize = 100;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[allow(unused)]
@@ -30,6 +36,8 @@ pub struct System {
     pub data_dir: String,
     #[serde(default = "default_run_at_startup")]
     pub run_at_startup: bool,
+    #[serde(default = "default_registry_max_pages")]
+    pub registry_max_pages: usize,
 }
 
 fn default_schedule() -> String {
@@ -41,6 +49,10 @@ fn default_data_dir() -> String {
 
 fn default_run_at_startup() -> bool {
     false
+}
+
+fn default_registry_max_pages() -> usize {
+    DEFAULT_REGISTRY_MAX_PAGES
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
