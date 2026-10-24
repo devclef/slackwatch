@@ -106,6 +106,21 @@ fn clone_or_open_repo(
     }
 }
 
+fn extract_base_image(image: &str) -> &str {
+    let without_digest = if let Some(idx) = image.find('@') {
+        &image[..idx]
+    } else {
+        image
+    };
+    let after_slash = without_digest.rsplit('/').next().unwrap_or(without_digest);
+    if let Some(colon_pos) = after_slash.find(':') {
+        let colon_idx = without_digest.len() - after_slash.len() + colon_pos;
+        &without_digest[..colon_idx]
+    } else {
+        without_digest
+    }
+}
+
 fn edit_files(local_path: &Path, workload: &Workload) {
     let name = &workload.name;
     let search_path = if let Some(git_directory) = &workload.git_directory {
@@ -122,7 +137,7 @@ fn edit_files(local_path: &Path, workload: &Workload) {
         local_path.join(name)
     };
     let image = workload.image.clone();
-    let base_image = image.split(":").collect::<Vec<&str>>()[0];
+    let base_image = extract_base_image(&image);
     let new_image = format!("{}:{}", base_image, workload.latest_version);
     log::info!("Base image: {base_image}");
     log::info!("New image: {new_image}");
@@ -139,12 +154,13 @@ fn edit_files(local_path: &Path, workload: &Workload) {
                 if let Some(spec) = statefulset.spec.as_mut() {
                     if let Some(template_spec) = spec.template.spec.as_mut() {
                         for container in &mut template_spec.containers {
-                            if container.image.as_deref().unwrap_or_default().contains(base_image) {
-                                log::info!("Found target image in file: {:?}", entry.path());
-                                container.image = Some(new_image.clone());
-                                image_updated = true;
+                            if let Some(container_image) = container.image.as_deref() {
+                                if extract_base_image(container_image) == base_image {
+                                    log::info!("Found target image in file: {:?}", entry.path());
+                                    container.image = Some(new_image.clone());
+                                    image_updated = true;
+                                }
                             }
-                            log::info!("Found target image in file: {:?}", entry.path());
                         }
                     }
                 }
@@ -167,10 +183,12 @@ fn edit_files(local_path: &Path, workload: &Workload) {
                     if let Some(spec) = deployment.spec.as_mut() {
                         if let Some(template_spec) = spec.template.spec.as_mut() {
                             for container in &mut template_spec.containers {
-                                if container.image.as_deref().unwrap_or_default().contains(base_image) {
-                                    log::info!("Found target image in file: {:?}", entry.path());
-                                    container.image = Some(new_image.clone());
-                                    image_updated = true;
+                                if let Some(container_image) = container.image.as_deref() {
+                                    if extract_base_image(container_image) == base_image {
+                                        log::info!("Found target image in file: {:?}", entry.path());
+                                        container.image = Some(new_image.clone());
+                                        image_updated = true;
+                                    }
                                 }
                             }
                         }
@@ -287,4 +305,106 @@ async fn run_git_operations_internal(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::UpdateStatus;
+    use std::fs;
+
+    #[test]
+    fn test_extract_base_image() {
+        assert_eq!(extract_base_image("codewithcj/sparkyfitness:v1.8.0"), "codewithcj/sparkyfitness");
+        assert_eq!(extract_base_image("codewithcj/sparkyfitness_server:v1.8.0"), "codewithcj/sparkyfitness_server");
+        assert_eq!(extract_base_image("codewithcj/sparkyfitness_garmin:v1.8.0"), "codewithcj/sparkyfitness_garmin");
+        assert_eq!(extract_base_image("nginx:1.21"), "nginx");
+        assert_eq!(extract_base_image("nginx"), "nginx");
+        assert_eq!(extract_base_image("localhost:5000/my-app:1.0.0"), "localhost:5000/my-app");
+        assert_eq!(extract_base_image("localhost:5000/my-app"), "localhost:5000/my-app");
+        assert_eq!(extract_base_image("ghcr.io/owner/repo:latest"), "ghcr.io/owner/repo");
+        assert_eq!(extract_base_image("ghcr.io/owner/repo@sha256:123456"), "ghcr.io/owner/repo");
+        assert_eq!(extract_base_image("ghcr.io/owner/repo:tag@sha256:123456"), "ghcr.io/owner/repo");
+    }
+
+    #[test]
+    fn test_edit_files_does_not_clobber_substring_images() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_path = temp_dir.path();
+        let app_dir = repo_path.join("sparkyfitness");
+        fs::create_dir_all(&app_dir).unwrap();
+
+        let web_yaml = r#"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sparkyfitness-web
+spec:
+  template:
+    spec:
+      containers:
+        - name: web
+          image: codewithcj/sparkyfitness:v1.8.0
+"#;
+        let server_yaml = r#"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sparkyfitness-server
+spec:
+  template:
+    spec:
+      containers:
+        - name: server
+          image: codewithcj/sparkyfitness_server:v1.8.0
+"#;
+        let garmin_yaml = r#"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sparkyfitness-garmin
+spec:
+  template:
+    spec:
+      containers:
+        - name: garmin
+          image: codewithcj/sparkyfitness_garmin:v1.8.0
+"#;
+
+        let web_path = app_dir.join("web.yaml");
+        let server_path = app_dir.join("server.yaml");
+        let garmin_path = app_dir.join("garmin.yaml");
+
+        fs::write(&web_path, web_yaml).unwrap();
+        fs::write(&server_path, server_yaml).unwrap();
+        fs::write(&garmin_path, garmin_yaml).unwrap();
+
+        let workload = Workload {
+            name: "web".to_string(),
+            namespace: "default".to_string(),
+            image: "codewithcj/sparkyfitness:v1.8.0".to_string(),
+            current_version: "v1.8.0".to_string(),
+            latest_version: "v1.9.0".to_string(),
+            exclude_pattern: None,
+            include_pattern: None,
+            git_ops_repo: Some("my-repo".to_string()),
+            git_directory: Some("sparkyfitness".to_string()),
+            update_available: UpdateStatus::Available,
+            last_scanned: "now".to_string(),
+            scan_exhausted: "False".to_string(),
+            error: None,
+        };
+
+        edit_files(repo_path, &workload);
+
+        let web_content = fs::read_to_string(&web_path).unwrap();
+        let server_content = fs::read_to_string(&server_path).unwrap();
+        let garmin_content = fs::read_to_string(&garmin_path).unwrap();
+
+        assert!(web_content.contains("codewithcj/sparkyfitness:v1.9.0"));
+        assert!(server_content.contains("codewithcj/sparkyfitness_server:v1.8.0"));
+        assert!(!server_content.contains("codewithcj/sparkyfitness:v1.9.0"));
+        assert!(garmin_content.contains("codewithcj/sparkyfitness_garmin:v1.8.0"));
+        assert!(!garmin_content.contains("codewithcj/sparkyfitness:v1.9.0"));
+    }
 }
