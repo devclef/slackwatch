@@ -6,7 +6,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.18.4",
-    "axios": "^1.18.1"
+    "axios": "^1.20.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
@@ -16,13 +16,13 @@
     "@vitejs/plugin-react": "^4.2.1",
     "jsdom": "^26.1.0",
     "typescript": "^5.3.3",
-    "vite": "^7.3.5",
+    "vite": "^7.3.7",
     "vitest": "^4.1.11"
   },
   "overrides": {
     "picomatch": "4.0.4",
     "postcss": "8.5.23",
-    "follow-redirects": "1.16.0",
+    "follow-redirects": "1.16.1",
     "form-data": "4.0.6",
     "@babel/core": "7.29.6",
     "esbuild": "0.28.1",
