@@ -48,6 +48,7 @@ SlackWatch is a Kubernetes tool that monitors container image versions and autom
 | `kubernetes/client.rs` | Lists pods via kube crate, extracts workloads from pod annotations |
 | `repocheck/repocheck.rs` | Fetches image tags from OCI registries via oci_distribution |
 | `services/workloads.rs` | Core logic: tag parsing, semver comparison, include/exclude regex filtering |
+| `services/auto_upgrade.rs` | Auto-upgrade policies (`slackwatch.autoupgrade`), target selection, applying via GitOps |
 | `services/scheduler.rs` | Cron-based scheduler (cron crate) that periodically refreshes all workloads |
 | `gitops/gitops.rs` | Clones GitOps repo, edits YAML manifests (Deployment/StatefulSet), commits and pushes |
 | `notifications/ntfy.rs` | Sends notifications via ntfy (update available + commit confirmation) |
@@ -61,6 +62,7 @@ Workloads are discovered from Kubernetes pods. A pod is watched if it has the an
 - `slackwatch.exclude` — comma-separated regex patterns for excluding tags
 - `slackwatch.repo` — name matching a `[[gitops]]` config entry for auto-upgrade
 - `slackwatch.directory` — subdirectory in the GitOps repo to search
+- `slackwatch.autoupgrade` — auto-upgrade policy: `patch`, `minor`, `major`, or `none` (default). Logic in `services/auto_upgrade.rs`; attempts are recorded in the `auto_upgrades` table so a tag is committed once per workload. Global kill switch: `system.auto_upgrade_enabled`
 
 ### Configuration
 

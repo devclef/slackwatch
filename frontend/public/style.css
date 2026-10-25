@@ -51,6 +51,17 @@
     font-size: 0.9em;
 }
 
+.auto-upgrade-policy {
+    display: inline-block;
+    color: #1b5e20;
+    background-color: #e8f5e9;
+    border: 1px solid #4caf50;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-top: 6px;
+    font-size: 0.85em;
+}
+
 .workload-update-single {
     display: flex;
     border: none;

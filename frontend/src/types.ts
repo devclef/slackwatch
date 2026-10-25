@@ -8,6 +8,7 @@ export interface Workload {
    update_available: 'Available' | 'NotAvailable' | 'Unknown';
    scan_exhausted: string;
    error?: string;
+   auto_upgrade?: string | null;
 }
 
 export interface Settings {

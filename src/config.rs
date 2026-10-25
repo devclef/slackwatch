@@ -18,6 +18,7 @@ impl Default for System {
             data_dir: default_data_dir(),
             run_at_startup: default_run_at_startup(),
             registry_max_pages: DEFAULT_REGISTRY_MAX_PAGES,
+            auto_upgrade_enabled: default_auto_upgrade_enabled(),
         }
     }
 }
@@ -38,6 +39,9 @@ pub struct System {
     pub run_at_startup: bool,
     #[serde(default = "default_registry_max_pages")]
     pub registry_max_pages: usize,
+    /// Global kill switch for annotation-driven auto-upgrades.
+    #[serde(default = "default_auto_upgrade_enabled")]
+    pub auto_upgrade_enabled: bool,
 }
 
 fn default_schedule() -> String {
@@ -53,6 +57,10 @@ fn default_run_at_startup() -> bool {
 
 fn default_registry_max_pages() -> usize {
     DEFAULT_REGISTRY_MAX_PAGES
+}
+
+fn default_auto_upgrade_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -272,5 +280,24 @@ mod tests {
         let settings = Settings::new().expect("Settings should load successfully");
         let ntfy = settings.notifications.unwrap().ntfy.unwrap();
         assert_eq!(ntfy.auto_rescan_delay, "5m");
+    }
+
+    #[test]
+    fn test_auto_upgrade_enabled_defaults_and_overrides() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        clear_env();
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let mut file = File::create(&config_path).unwrap();
+        writeln!(file, "[system]\nschedule = \"0 0 * * * *\"").unwrap();
+        std::env::set_var("SLACKWATCH_CONFIG", config_path.to_str().unwrap());
+        let settings = Settings::new().expect("Settings should load successfully");
+        assert!(settings.system.auto_upgrade_enabled);
+
+        let mut file = File::create(&config_path).unwrap();
+        writeln!(file, "[system]\nauto_upgrade_enabled = false").unwrap();
+        let settings = Settings::new().expect("Settings should load successfully");
+        assert!(!settings.system.auto_upgrade_enabled);
+        assert!(System::default().auto_upgrade_enabled);
     }
 }

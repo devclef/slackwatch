@@ -4,6 +4,9 @@ use crate::kubernetes::client::{find_enabled_workloads, find_specific_workload};
 use crate::models::{UpdateStatus, Workload};
 use crate::notifications::ntfy::send_batch_notification;
 use crate::repocheck::get_tags_for_image;
+use crate::services::auto_upgrade::{
+    apply_auto_upgrade, select_auto_upgrade_target, AutoUpgradeOutcome, AutoUpgradePolicy,
+};
 use regex::Regex;
 use semver::Version;
 
@@ -16,41 +19,12 @@ pub async fn update_single_workload(current_workload: Workload, max_pages: usize
     .map_err(|e| e.to_string())?;
     log::info!("Found workload: {:?}", workload);
     let scan_id = get_latest_scan_id().unwrap_or(0) + 1;
-    // Fetch tags once: parse_tags does the full fetch and comparison.
+    // Fetch tags once: scan_workload does the full fetch and comparison.
     // (Previously the tags were fetched a second time here via
     // find_latest_tag_for_image, which doubled registry rate-limit usage.)
-    let workload = match parse_tags(&workload, max_pages).await {
-        Ok(w) => w,
-        Err(e) => {
-            log::error!("Scan error for workload {}: {}", workload.name, e);
-            Workload {
-                name: workload.name.clone(),
-                exclude_pattern: workload.exclude_pattern.clone(),
-                git_ops_repo: workload.git_ops_repo.clone(),
-                include_pattern: workload.include_pattern.clone(),
-                namespace: workload.namespace.clone(),
-                current_version: workload.current_version.clone(),
-                image: workload.image.clone(),
-                update_available: UpdateStatus::NotAvailable,
-                last_scanned: workload.last_scanned.clone(),
-                latest_version: String::new(),
-                git_directory: workload.git_directory.clone(),
-                scan_exhausted: "False".to_string(),
-                error: Some(e.to_string()),
-            }
-        }
-    };
-
-    if workload.update_available.to_string() == "Available" {
-        let workloads: Vec<Workload> = vec![workload.clone()];
-        send_batch_notification(&workloads)
-            .await
-            .unwrap_or_else(|e| log::error!("Error sending notification: {}", e));
-    }
-    std::thread::spawn(move || database::client::insert_workload(&workload, scan_id))
-        .join()
-        .map_err(|_| "Thread error".to_string())?
-        .expect("TODO: panic message");
+    let result = scan_or_error(&workload, max_pages).await;
+    store_scan(&result.workload, scan_id)?;
+    finish_scan(vec![result]).await;
     Ok(())
 }
 
@@ -59,15 +33,36 @@ pub async fn fetch_and_update_all_watched(max_pages: usize) -> Result<(), String
     log::info!("Found {} workloads", workloads.len());
 
     let scan_id = get_latest_scan_id().unwrap_or(0) + 1;
-    let mut updates_available: Vec<Workload> = Vec::new();
+    let mut results: Vec<ScanResult> = Vec::new();
 
     for workload in workloads {
-        // Fetch tags once: parse_tags does the full fetch and comparison.
-        let workload = match parse_tags(&workload, max_pages).await {
-            Ok(w) => w,
-            Err(e) => {
-                log::error!("Scan error for workload {}: {}", workload.name, e);
-                Workload {
+        // Fetch tags once: scan_workload does the full fetch and comparison.
+        let result = scan_or_error(&workload, max_pages).await;
+        store_scan(&result.workload, scan_id)?;
+        results.push(result);
+    }
+
+    finish_scan(results).await;
+    Ok(())
+}
+
+/// Outcome of scanning one workload against its registry.
+pub struct ScanResult {
+    pub workload: Workload,
+    /// Tag the workload's `slackwatch.autoupgrade` policy allows moving to,
+    /// if any.
+    pub auto_upgrade_target: Option<String>,
+}
+
+/// Scan a workload, turning a scan failure into a workload carrying the
+/// error so it is still stored and shown.
+async fn scan_or_error(workload: &Workload, max_pages: usize) -> ScanResult {
+    match scan_workload(workload, max_pages).await {
+        Ok(result) => result,
+        Err(e) => {
+            log::error!("Scan error for workload {}: {}", workload.name, e);
+            ScanResult {
+                workload: Workload {
                     name: workload.name.clone(),
                     exclude_pattern: workload.exclude_pattern.clone(),
                     git_ops_repo: workload.git_ops_repo.clone(),
@@ -81,18 +76,46 @@ pub async fn fetch_and_update_all_watched(max_pages: usize) -> Result<(), String
                     git_directory: workload.git_directory.clone(),
                     scan_exhausted: "False".to_string(),
                     error: Some(e.to_string()),
-                }
+                    auto_upgrade: workload.auto_upgrade.clone(),
+                },
+                auto_upgrade_target: None,
             }
-        };
-
-        if workload.update_available.to_string() == "Available" {
-            updates_available.push(workload.clone());
         }
+    }
+}
 
-        std::thread::spawn(move || database::client::insert_workload(&workload, scan_id))
-            .join()
-            .map_err(|_| "Thread error".to_string())?
-            .expect("TODO: panic message");
+fn store_scan(workload: &Workload, scan_id: i32) -> Result<(), String> {
+    let workload = workload.clone();
+    std::thread::spawn(move || database::client::insert_workload(&workload, scan_id))
+        .join()
+        .map_err(|_| "Thread error".to_string())?
+        .expect("TODO: panic message");
+    Ok(())
+}
+
+/// Apply any auto-upgrades, then send the batch "Update Available"
+/// notification. A workload auto-upgraded to its latest version is left out
+/// of the notification (the commit notification already covers it); one
+/// auto-upgraded to an older-than-latest version stays in, so the user can
+/// still take the bigger jump manually.
+async fn finish_scan(results: Vec<ScanResult>) {
+    let mut updates_available: Vec<Workload> = Vec::new();
+
+    for result in results {
+        let workload = result.workload;
+        if let Some(target) = result.auto_upgrade_target {
+            let outcome = apply_auto_upgrade(&workload, &target).await;
+            let handled = matches!(
+                outcome,
+                AutoUpgradeOutcome::Applied | AutoUpgradeOutcome::AlreadyApplied
+            );
+            if handled && target == workload.latest_version {
+                continue;
+            }
+        }
+        if workload.update_available == UpdateStatus::Available {
+            updates_available.push(workload);
+        }
     }
 
     // Send batch notification if there are updates
@@ -101,8 +124,6 @@ pub async fn fetch_and_update_all_watched(max_pages: usize) -> Result<(), String
             .await
             .unwrap_or_else(|e| log::error!("Error sending batch notification: {}", e));
     }
-
-    Ok(())
 }
 
 
@@ -132,7 +153,7 @@ pub async fn test_call() {
 /// accepted on full `major.minor.patch` tags (`12.1.0-beta`). Anything
 /// else (`unstable`, `sha-e959062`, `42-bound-74a3ef0`, `9443289`,
 /// `video-player-1.2.3`) returns `None`.
-fn parse_version_loose(tag: &str) -> Option<Version> {
+pub(crate) fn parse_version_loose(tag: &str) -> Option<Version> {
     // Strip a leading version marker: a full `version-` prefix (Firefly
     // III), then a single `v`/`V` — but only when a digit follows, so
     // e.g. `version-6.7.8` is not mangled into `ersion-6.7.8` by the
@@ -218,6 +239,10 @@ fn find_latest_update(current_version: &str, tags: &[String]) -> Option<String> 
 }
 
 pub async fn parse_tags(workload: &Workload, max_pages: usize) -> Result<Workload, String> {
+    scan_workload(workload, max_pages).await.map(|r| r.workload)
+}
+
+pub async fn scan_workload(workload: &Workload, max_pages: usize) -> Result<ScanResult, String> {
      let (mut tags, exhausted) = get_tags_for_image(&workload.image, max_pages).await.map_err(|e| e.to_string())?;
      tags.sort();
 
@@ -270,13 +295,34 @@ pub async fn parse_tags(workload: &Workload, max_pages: usize) -> Result<Workloa
     }
     // Perform SemVer comparison with each tag:
     let latest_version = find_latest_update(&workload.current_version, &tags).unwrap_or_default();
+    // An invalid policy must not hide the scan result, so it is surfaced
+    // as the workload error and auto-upgrade is skipped.
+    let (auto_upgrade_target, policy_error) =
+        match AutoUpgradePolicy::from_annotation(workload.auto_upgrade.as_deref()) {
+            Ok(policy) => (
+                select_auto_upgrade_target(&workload.current_version, &tags, policy),
+                None,
+            ),
+            Err(e) => {
+                log::warn!("Workload {}: {}", workload.name, e);
+                (None, Some(e))
+            }
+        };
+    if let Some(target) = &auto_upgrade_target {
+        log::info!(
+            "Auto-upgrade target for {} ({:?} policy): {}",
+            workload.image,
+            workload.auto_upgrade,
+            target
+        );
+    }
     let update_available = if latest_version.is_empty() {
         UpdateStatus::NotAvailable
     } else {
         log::info!("Latest version for {}: {}", workload.image, latest_version);
         UpdateStatus::Available
     };
-Ok(Workload {
+let workload = Workload {
          name: workload.name.clone(),
          exclude_pattern: workload.exclude_pattern.clone(),
          git_ops_repo: workload.git_ops_repo.clone(),
@@ -289,9 +335,14 @@ Ok(Workload {
          latest_version: latest_version.clone(),
          git_directory: workload.git_directory.clone(),
          scan_exhausted: exhausted.to_string(),
-         error: None,
-     })
- }
+         error: policy_error,
+         auto_upgrade: workload.auto_upgrade.clone(),
+     };
+    Ok(ScanResult {
+        workload,
+        auto_upgrade_target,
+    })
+}
 
 #[cfg(test)]
 mod tests {

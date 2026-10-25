@@ -1,3 +1,4 @@
+pub mod auto_upgrade;
 pub mod scheduler;
 pub mod workloads;
 

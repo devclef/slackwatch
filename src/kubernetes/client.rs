@@ -54,6 +54,7 @@ Some(Workload {
          last_scanned: chrono::Utc::now().to_rfc3339(),
          scan_exhausted: "False".to_string(),
          error: None,
+         auto_upgrade: annotations.get("slackwatch.autoupgrade").cloned(),
      })
  }
 
