@@ -48,6 +48,9 @@ return (
       <div className="workload-version">Current Tag {workload.current_version}</div>
       <div className="workload-image">Image: {workload.image}</div>
       <div className="workload-last-scanned">Last Scanned: {workload.last_scanned}</div>
+      {workload.auto_upgrade && (
+        <div className="auto-upgrade-policy">Auto-upgrade: {workload.auto_upgrade}</div>
+      )}
        {workload.scan_exhausted === 'true' && (
          <div className="scan-exhausted">Scan Exhausted</div>
        )}

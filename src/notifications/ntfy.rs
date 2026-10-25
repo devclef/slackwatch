@@ -244,6 +244,7 @@ mod tests {
             latest_version: "1.1.0".to_string(),
             scan_exhausted: "False".to_string(),
             error: None,
+            auto_upgrade: None,
         }
     }
 

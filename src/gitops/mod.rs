@@ -393,6 +393,7 @@ spec:
             last_scanned: "now".to_string(),
             scan_exhausted: "False".to_string(),
             error: None,
+            auto_upgrade: None,
         };
 
         edit_files(repo_path, &workload);

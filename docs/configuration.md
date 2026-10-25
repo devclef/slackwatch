@@ -22,6 +22,7 @@ Slackwatch supports configuration via a TOML file. The default location is `~/.s
 schedule = "0 0 9-22/2 * * *"
 data_dir = "/app/slackwatch/data"
 registry_max_pages = 100
+auto_upgrade_enabled = true
 ```
 ---
 
@@ -43,6 +44,13 @@ description: The `data_dir` is the directory where slackwatch stores its data. T
 default: `100`
 
 description: The maximum number of `tags/list` pages to fetch per image before a scan is marked *Scan Exhausted*. GHCR caps each page at 1000 tags, so the default of 100 covers roughly 100,000 tags. Raise this for very heavily versioned images (e.g. `ghcr.io/immich-app/immich-server` has ~32k tags) if their tag list does not fit in the default budget. Overridable via `SLACKWATCH_SYSTEM.REGISTRY_MAX_PAGES`.
+
+---
+
+#### auto_upgrade_enabled
+default: `true`
+
+description: Global switch for [annotation-driven auto-upgrades](workload_annotations.md#slackwatchautoupgrade). Auto-upgrades only happen for workloads with a `slackwatch.autoupgrade` annotation; set this to `false` to pause all of them without editing annotations. Overridable via `SLACKWATCH_SYSTEM.AUTO_UPGRADE_ENABLED`.
 
 ---
 

@@ -63,6 +63,42 @@ describe('Home component', () => {
     expect(screen.queryByText('Loading workloads...')).not.toBeInTheDocument();
   });
 
+  it('shows the auto-upgrade policy badge only when set', async () => {
+    (apiModule.api.getAllWorkloads as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        name: 'auto-app',
+        namespace: 'default',
+        image: 'nginx',
+        current_version: '1.0.0',
+        latest_version: '1.0.0',
+        last_scanned: '2026-10-25',
+        update_available: 'NotAvailable',
+        scan_exhausted: 'false',
+        auto_upgrade: 'minor',
+      },
+      {
+        name: 'manual-app',
+        namespace: 'default',
+        image: 'nginx',
+        current_version: '1.0.0',
+        latest_version: '1.0.0',
+        last_scanned: '2026-10-25',
+        update_available: 'NotAvailable',
+        scan_exhausted: 'false',
+        auto_upgrade: null,
+      },
+    ]);
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(screen.getByText('auto-app')).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByText(/Auto-upgrade:/)).toHaveLength(1);
+    expect(screen.getByText('Auto-upgrade: minor')).toBeInTheDocument();
+  });
+
   it('renders empty state when no workloads are found', async () => {
     (apiModule.api.getAllWorkloads as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
